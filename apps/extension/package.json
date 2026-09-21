@@ -1,0 +1,19 @@
+{
+  "name": "@kavach/extension",
+  "version": "0.1.0",
+  "description": "Kavach browser extension: local perception, policy and egress; Chrome MV3 and Firefox from one codebase.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kavach/core": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.6.3"
+  }
+}

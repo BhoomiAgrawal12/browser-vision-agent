@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kavach</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header>
+    <h1>Kavach</h1>
+    <span class="tagline">local eye &middot; remote brain &middot; unbreakable filter</span>
+  </header>
+
+  <section class="controls">
+    <label for="task">What should the agent do?</label>
+    <textarea id="task" rows="2" placeholder="e.g. Help me complete this form"></textarea>
+    <div class="row">
+      <select id="mode" title="Privacy mode">
+        <option value="shield" selected>Shield</option>
+        <option value="fortress">Fortress</option>
+        <option value="wireframe">Wireframe (zero pixels)</option>
+      </select>
+      <button id="run">Run</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+  </section>
+
+  <section class="meter">
+    <div class="stat"><span id="stat-blocked">0</span><label>values redacted</label></div>
+    <div class="stat"><span id="stat-sent">0</span><label>requests sent</label></div>
+    <div class="stat"><span id="stat-bytes">0</span><label>bytes out</label></div>
+    <div class="stat"><span id="stat-leaks">0</span><label>raw PII leaked</label></div>
+  </section>
+
+  <section class="log-section">
+    <h2>Activity</h2>
+    <div id="log" class="log"></div>
+  </section>
+
+  <section class="server-view">
+    <h2>What the server sees <span class="hint">(the entire outbound payload)</span></h2>
+    <pre id="packet-view">nothing sent yet</pre>
+  </section>
+
+  <section class="receipts-section">
+    <h2>Privacy receipts</h2>
+    <div id="receipts" class="receipts"></div>
+  </section>
+
+  <dialog id="ask">
+    <form method="dialog">
+      <p id="ask-text"></p>
+      <input id="ask-input" type="text" autocomplete="off">
+      <div class="row">
+        <button value="ok" id="ask-ok">Provide</button>
+        <button value="cancel" formnovalidate>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <p id="confirm-text"></p>
+      <div class="row">
+        <button value="ok" class="danger">Approve</button>
+        <button value="cancel" formnovalidate>Reject</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -147,6 +147,7 @@ export const TaskHistoryStep = z
     result: z.enum(["ok", "failed", "aborted"]),
   })
   .strict();
+export type TaskHistoryStep = z.infer<typeof TaskHistoryStep>;
 
 export const SanitizedContextPacket = z
   .object({
