@@ -93,6 +93,14 @@ button.danger { background: var(--bad); }
 .log .err { color: var(--bad); }
 .log .dim { color: var(--ink-soft); }
 
+#visual-preview {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: block;
+}
+
 .server-view pre {
   background: var(--panel);
   border: 1px solid var(--rule);

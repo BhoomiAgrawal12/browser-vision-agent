@@ -12,6 +12,14 @@ import {
   type TaskHistoryStep,
 } from "@kavach/core/schema";
 import { Vault } from "@kavach/core/vault";
+import { cssToImage, type CoordinateSpace } from "@kavach/core/fusion";
+import {
+  SelfCheckFailed,
+  buildSanitizedVisual,
+  captureVisibleTab,
+  type SanitizedVisual,
+} from "@kavach/perception/browser";
+import { diffTiles, hashTiles, type RedactionRect } from "@kavach/perception";
 import {
   sendToTab,
   type ExecuteResponse,
@@ -135,6 +143,7 @@ function buildPacket(
   sanitized: ReturnType<PolicyEngine["sanitize"]>,
   mode: PrivacyMode,
   history: TaskHistoryStep[],
+  visual: SanitizedVisual | null,
 ): SanitizedContextPacket {
   return {
     schema: SCP_SCHEMA_ID,
@@ -143,7 +152,7 @@ function buildPacket(
     policy: { mode, policy_version: POLICY_VERSION, invariant_floor: true },
     device: {
       backend: "none",
-      tier: "T0",
+      tier: visual ? "T1" : "T0",
       viewport: perception.meta.viewport,
     },
     origin: {
@@ -152,12 +161,87 @@ function buildPacket(
       page_kind: perception.meta.pageKind,
       lang: perception.meta.lang.slice(0, 16),
     },
-    visual: { present: false, regions_redacted: sanitized.summary.regionsRedacted },
+    visual: visual
+      ? {
+          present: true,
+          format: "image/webp",
+          w: visual.width,
+          h: visual.height,
+          sha256: visual.sha256,
+          redaction_overlay:
+            visual.compose.stampPlacements.length > 0 ? "label_stamp" : "flat_fill",
+          regions_redacted: sanitized.summary.regionsRedacted,
+          data_b64: visual.base64,
+        }
+      : { present: false, regions_redacted: sanitized.summary.regionsRedacted },
     elements: sanitized.elements,
     redaction_legend: sanitized.legend,
     task: { intent: sanitized.intent.slice(0, 1000), history: history.slice(-50) },
     untrusted_text: sanitized.untrustedText.slice(0, 200),
   };
+}
+
+/* The visual pipeline: capture, dirty-tile reuse, compose, self-check. */
+
+let lastTiles: Uint32Array | null = null;
+let lastVisual: SanitizedVisual | null = null;
+
+async function buildVisual(
+  perception: PerceiveResponse,
+  sanitized: ReturnType<PolicyEngine["sanitize"]>,
+): Promise<SanitizedVisual | null> {
+  try {
+    const frame = await captureVisibleTab();
+    const tiles = hashTiles(frame.image);
+    const diff = diffTiles(lastTiles, tiles);
+    lastTiles = tiles;
+    if (diff.changedFraction === 0 && lastVisual) {
+      log("  frame unchanged; reusing previous sanitized visual", "dim");
+      return lastVisual;
+    }
+
+    const space: CoordinateSpace = {
+      dpr: perception.meta.viewport.dpr,
+      scale: frame.scale,
+      imageW: frame.image.width,
+      imageH: frame.image.height,
+    };
+    // Every region whose value was withheld gets its pixels destroyed too.
+    const redactions: RedactionRect[] = sanitized.elements
+      .filter(
+        (el) =>
+          el.value &&
+          (el.value.kind === "placeholder" ||
+            el.value.kind === "redacted" ||
+            el.value.kind === "unexplained_masked"),
+      )
+      .map((el) => {
+        const token =
+          el.value && "token" in el.value && el.value.token ? el.value.token : null;
+        const r: RedactionRect = { box: cssToImage(el.box, space) };
+        if (token) r.label = token.split("#")[0]!;
+        else if (el.value!.kind === "unexplained_masked") r.label = "UNEXPLAINED";
+        return r;
+      });
+
+    const visual = await buildSanitizedVisual(frame, redactions);
+    lastVisual = visual;
+    log(
+      `  visual: ${redactions.length} region(s) destroyed, ` +
+        `self-check ${visual.selfCheck.pixelsChecked.toLocaleString()} px, ` +
+        `${visual.bytes.length.toLocaleString()} B webp`,
+    );
+    return visual;
+  } catch (e) {
+    lastVisual = null;
+    if (e instanceof SelfCheckFailed) {
+      // Fail closed: a frame that flunks its own verification never leaves.
+      log(`  ${e.message} Sending structure only.`, "err");
+      return null;
+    }
+    log(`  capture unavailable (${(e as Error).message}); structure only`, "dim");
+    return null;
+  }
 }
 
 async function resolveStep(step: PlanStep): Promise<ResolvedStep | "cancelled"> {
@@ -241,8 +325,21 @@ async function runTask(): Promise<void> {
           `${sanitized.summary.unexplainedMasked} unexplained masked`,
       );
 
-      const packet = buildPacket(perception, sanitized, mode, history);
-      packetView.textContent = JSON.stringify(packet, null, 2);
+      const visual = mode === "wireframe" ? null : await buildVisual(perception, sanitized);
+      const packet = buildPacket(perception, sanitized, mode, history, visual);
+
+      const preview = $<HTMLImageElement>("visual-preview");
+      if (visual) {
+        preview.src = `data:image/webp;base64,${visual.base64}`;
+        preview.hidden = false;
+      } else {
+        preview.hidden = true;
+      }
+      packetView.textContent = JSON.stringify(
+        { ...packet, visual: { ...packet.visual, data_b64: packet.visual.data_b64 ? `<${packet.visual.data_b64.length} base64 chars, shown above>` : undefined } },
+        null,
+        2,
+      );
 
       log("  sending through the egress gate…", "dim");
       let plan: ActionPlan;
