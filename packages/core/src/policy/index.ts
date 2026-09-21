@@ -128,6 +128,71 @@ export class PolicyEngine {
     return out;
   }
 
+  /**
+   * Cross-region line scan: PII split across adjacent DOM nodes on one
+   * visual line ("9999 4105" in one span, "7058" in the next) defeats
+   * per-region analysis. Reconstruct lines by y-band, analyze the joined
+   * text, and force-redact every region a crossing span touches.
+   */
+  private crossRegionScan(
+    regions: RawRegion[],
+    mode: PrivacyMode,
+  ): Map<string, { cls: PiiClass; normalized: string }> {
+    const forced = new Map<string, { cls: PiiClass; normalized: string }>();
+    const textual = regions
+      .filter((r) => (r.rawText ?? r.rawValue ?? "").trim().length > 0)
+      .sort((a, b) => a.box[1] - b.box[1] || a.box[0] - b.box[0]);
+
+    // Group into visual lines: same y-band within half the region height.
+    const lines: RawRegion[][] = [];
+    for (const r of textual) {
+      const line = lines.find((l) => {
+        const ref = l[0]!;
+        const tolerance = Math.max(8, Math.min(ref.box[3], r.box[3]) / 2);
+        return Math.abs(ref.box[1] - r.box[1]) <= tolerance;
+      });
+      if (line) line.push(r);
+      else lines.push([r]);
+    }
+
+    for (const line of lines) {
+      if (line.length < 2) continue;
+      line.sort((a, b) => a.box[0] - b.box[0]);
+      const parts = line.map((r) => (r.rawText ?? r.rawValue ?? "").trim());
+      const joined = parts.join(" ");
+      const bounds: number[] = [];
+      let cursor = 0;
+      for (const p of parts) {
+        cursor += p.length;
+        bounds.push(cursor);
+        cursor += 1; // the joining space
+      }
+      for (const span of this.registry.analyze(joined, {
+        threshold: MODE_THRESHOLD[mode],
+      })) {
+        if (!modeRedacts(mode, span.cls)) continue;
+        // Which parts does this span touch? Crossing a boundary means the
+        // value was split across regions and each one must be redacted.
+        const touched: number[] = [];
+        let start = 0;
+        for (const [i, p] of parts.entries()) {
+          const end = start + p.length;
+          if (span.start < end && start < span.end) touched.push(i);
+          start = end + 1;
+        }
+        if (touched.length >= 2) {
+          for (const i of touched) {
+            forced.set(line[i]!.id, {
+              cls: span.cls,
+              normalized: span.normalized ?? span.text,
+            });
+          }
+        }
+      }
+    }
+    return forced;
+  }
+
   sanitize(regions: RawRegion[], mode: PrivacyMode, taskIntent: string): SanitizeResult & { intent: string } {
     const used = new Set<PiiClass>();
     const recoverable = new Set<PiiClass>();
@@ -135,6 +200,7 @@ export class PolicyEngine {
     const untrustedText: { src: string; text: string }[] = [];
     const counters = { overflows: 0 };
     let unexplainedMasked = 0;
+    const forced = this.crossRegionScan(regions, mode);
 
     const note = (cls: PiiClass) => {
       used.add(cls);
@@ -146,6 +212,28 @@ export class PolicyEngine {
       let value: ElementValue | undefined;
       let label = r.label;
 
+      // 0. Cross-region hits: this region carries part of a value that was
+      //    split across nodes. The whole region is redacted; the token is
+      //    minted from the reassembled value so it stays stable.
+      const crossHit = forced.get(r.id);
+      if (crossHit) {
+        note(crossHit.cls);
+        evidence.push("pattern:cross-region");
+        value = this.mintValue(crossHit.cls, crossHit.normalized, counters, recoverable);
+        const el: SceneElement = {
+          id: r.id,
+          role: r.role,
+          label: label ? this.sanitizeText(label, mode, used, counters).slice(0, 300) : null,
+          box: r.box,
+          evidence: evidence.slice(0, 16),
+          confidence: r.confidence,
+          source: r.source,
+        };
+        if (r.state) el.state = r.state;
+        if (value) el.value = value;
+        if (r.risk) el.risk = r.risk;
+        return el;
+      }
       // 1. Fail closed: pixels no DOM node explains are masked, always.
       if (!r.explained && r.source === "vision" && !r.visualClass) {
         value = { kind: "unexplained_masked" };
