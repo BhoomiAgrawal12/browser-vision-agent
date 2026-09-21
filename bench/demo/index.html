@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jan Seva Portal - Address Verification</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #eef1f4;
+      color: #1c2733;
+    }
+    header {
+      background: #123a63;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .emblem {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: #e8b23a; display: grid; place-items: center;
+      color: #123a63; font-weight: 700;
+    }
+    main {
+      max-width: 720px;
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      padding: 24px 28px;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .ref { color: #5a6673; font-size: 13px; margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field.wide { grid-column: 1 / -1; }
+    label { font-size: 13px; color: #37424e; font-weight: 600; }
+    label .req { color: #b3352b; }
+    input, select {
+      padding: 9px 11px;
+      border: 1px solid #c3ccd4;
+      border-radius: 5px;
+      font: inherit;
+    }
+    input:disabled { background: #f2f4f6; }
+    .photo-row { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+    .photo-row figure { margin: 0; text-align: center; font-size: 12px; color: #5a6673; }
+    .actions { margin-top: 22px; display: flex; gap: 10px; align-items: center; }
+    button {
+      background: #1c6b3c; color: #fff; border: 0; border-radius: 5px;
+      padding: 10px 22px; font: inherit; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { background: #9db3a6; cursor: default; }
+    .note { font-size: 12.5px; color: #5a6673; }
+    .banner {
+      background: #fdf6e3; border: 1px solid #e8d9a0; border-radius: 5px;
+      padding: 10px 14px; font-size: 13px; margin-bottom: 18px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="emblem">JS</div>
+    <div>
+      <strong>Jan Seva Portal</strong><br>
+      <small>Citizen Services · Government of Demo</small>
+    </div>
+  </header>
+
+  <main>
+    <h1>Address Verification - Step 2 of 3</h1>
+    <!-- 12 digits, deliberately NOT a valid Aadhaar: the precision test.
+         A correct system leaves this visible. -->
+    <p class="ref">Application reference: 784512369014</p>
+
+    <div class="banner">
+      Please verify your registered details and complete the address section below.
+    </div>
+
+    <div class="photo-row">
+      <figure>
+        <svg width="96" height="120" viewBox="0 0 96 120" role="img" aria-label="Applicant photo">
+          <rect width="96" height="120" fill="#d8e0e8"/>
+          <circle cx="48" cy="42" r="20" fill="#8fa3b5"/>
+          <ellipse cx="48" cy="92" rx="30" ry="22" fill="#8fa3b5"/>
+        </svg>
+        <figcaption>Applicant photo</figcaption>
+      </figure>
+      <p class="note">
+        The photograph and identity details below were fetched from your profile.
+        Contact the helpdesk on 1800-000-000 if anything is incorrect.
+      </p>
+    </div>
+
+    <form id="verification">
+      <div class="grid">
+        <div class="field">
+          <label for="name">Full Name <span class="req">*</span></label>
+          <input id="name" name="full_name" value="Ramesh Kumar" required>
+        </div>
+        <div class="field">
+          <label for="aadhaar">Aadhaar Number <span class="req">*</span></label>
+          <!-- Verhoeff-valid UIDAI test number -->
+          <input id="aadhaar" name="aadhaar_number" value="9999 4105 7058" required>
+        </div>
+        <div class="field">
+          <label for="email">Email Address <span class="req">*</span></label>
+          <input id="email" name="email" type="email" autocomplete="email"
+                 value="ramesh.kumar@gmail.com" required>
+        </div>
+        <div class="field">
+          <label for="mobile">Mobile Number <span class="req">*</span></label>
+          <input id="mobile" name="mobile" type="tel" autocomplete="tel"
+                 value="+91 98765 43210" required>
+        </div>
+        <div class="field wide">
+          <label for="address">Street Address <span class="req">*</span></label>
+          <input id="address" name="street_address" autocomplete="street-address" required>
+        </div>
+        <div class="field">
+          <label for="city">City <span class="req">*</span></label>
+          <input id="city" name="city" required>
+        </div>
+        <div class="field">
+          <label for="pincode">PIN Code <span class="req">*</span></label>
+          <input id="pincode" name="pin_code" autocomplete="postal-code"
+                 inputmode="numeric" maxlength="6" required>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="submit-btn" type="submit" disabled>Proceed to Verification</button>
+        <span class="note" id="status">Fill all required fields to continue.</span>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById("verification");
+    const btn = document.getElementById("submit-btn");
+    const status = document.getElementById("status");
+    function refresh() {
+      const complete = [...form.querySelectorAll("input[required]")]
+        .every((i) => i.value.trim().length > 0);
+      btn.disabled = !complete;
+      status.textContent = complete
+        ? "Ready to submit."
+        : "Fill all required fields to continue.";
+    }
+    form.addEventListener("input", refresh);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      status.textContent = "Submitted. Verification reference: VRF-2026-004417";
+      btn.disabled = true;
+    });
+    refresh();
+  </script>
+</body>
+</html>
