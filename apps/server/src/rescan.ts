@@ -32,6 +32,9 @@ export function rescanPacket(packet: SanitizedContextPacket): RescanIssue[] {
     // Hashes are hex strings; skip them, they cannot carry PII patterns
     // but a 64-char digit-heavy string could false-positive as an account.
     if (path.endsWith(".sha256")) continue;
+    // Image bytes: base64 digit runs false-positive; the client's
+    // pixel-level self-check owns this field's safety.
+    if (path.endsWith(".data_b64")) continue;
     for (const span of registry.analyze(text, { threshold: RESCAN_THRESHOLD })) {
       issues.push({ path, cls: span.cls });
     }

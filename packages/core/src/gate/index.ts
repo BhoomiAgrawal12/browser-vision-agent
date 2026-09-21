@@ -110,15 +110,33 @@ export class EgressGate {
     const packet = SanitizedContextPacket.parse(packetInput);
     const serialized = JSON.stringify(packet);
 
+    // The image travels as base64, whose random digit runs would trip the
+    // text detectors. Its safety is proven by the composer's pixel-level
+    // self-check; here we scan everything EXCEPT the image bytes, and
+    // independently verify the image hash so the receipt stays honest.
+    const scannable =
+      packet.visual.data_b64 === undefined
+        ? serialized
+        : JSON.stringify({
+            ...packet,
+            visual: { ...packet.visual, data_b64: undefined },
+          });
+
     // 2. Tripwire: re-run the full detector suite over everything that is
     //    about to leave. Strong hits mean the policy engine failed; block.
-    const survivors = this.opts.registry.analyze(serialized, {
+    const survivors = this.opts.registry.analyze(scannable, {
       threshold: TRIPWIRE_THRESHOLD,
     });
     // 3. Literal vault values in the payload are always a block.
-    const vaultLeaks = this.opts.vault.findLeaks(serialized);
+    const vaultLeaks = this.opts.vault.findLeaks(scannable);
 
     const reasons: string[] = [];
+    if (packet.visual.data_b64 !== undefined) {
+      const actual = await sha256Hex(packet.visual.data_b64);
+      if (actual !== packet.visual.sha256) {
+        reasons.push("visual: sha256 does not match the image payload");
+      }
+    }
     for (const s of survivors) {
       reasons.push(`tripwire: ${s.cls} detected in outbound payload`);
     }

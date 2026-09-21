@@ -191,6 +191,16 @@ export const SanitizedContextPacket = z
         sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
         redaction_overlay: z.enum(["flat_fill", "label_stamp", "none"]).optional(),
         regions_redacted: z.number().int().nonnegative(),
+        /**
+         * The composed, self-checked frame as base64. sha256 above is the
+         * hash OF THIS STRING, verified independently by the egress gate,
+         * so the receipt can prove exactly which pixels left the machine.
+         */
+        data_b64: z
+          .string()
+          .max(1_500_000)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+          .optional(),
       })
       .strict(),
     elements: z.array(SceneElement).max(600),
@@ -227,6 +237,13 @@ export const SanitizedContextPacket = z
         code: z.ZodIssueCode.custom,
         path: ["visual"],
         message: "a present visual requires format and sha256",
+      });
+    }
+    if (packet.visual.data_b64 !== undefined && !packet.visual.present) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["visual", "data_b64"],
+        message: "image data requires visual.present true",
       });
     }
     // Every placeholder class used by an element must be described in the legend.

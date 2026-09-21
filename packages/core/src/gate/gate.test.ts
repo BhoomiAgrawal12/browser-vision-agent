@@ -115,6 +115,45 @@ describe("EgressGate: the tripwire", () => {
   });
 });
 
+describe("EgressGate: visual payload", () => {
+  async function packetWithImage(): Promise<ReturnType<typeof fixturePacket>> {
+    const p = fixturePacket();
+    // Base64 deliberately containing a digit run that WOULD trip the card
+    // detector if the gate scanned image bytes as text.
+    p.visual.data_b64 = "AAAA4111111111111111AAAA";
+    const { sha256Hex } = await import("./index.js");
+    p.visual.sha256 = await sha256Hex(p.visual.data_b64);
+    return p;
+  }
+
+  it("sends an image packet without tripping on base64 digit runs", async () => {
+    const plan = await gate.send(await packetWithImage());
+    expect(plan.steps).toHaveLength(1);
+    expect(receipts[0]!.verification.tripwire_passed).toBe(true);
+  });
+
+  it("blocks when the declared sha256 does not match the image bytes", async () => {
+    const p = await packetWithImage();
+    p.visual.sha256 = "0".repeat(64);
+    await expect(gate.send(p)).rejects.toThrow(/sha256 does not match/);
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("still catches raw PII outside the image field of an image packet", async () => {
+    const p = await packetWithImage();
+    p.untrusted_text.push({ src: "e15", text: "aadhaar 9999 4105 7058" });
+    await expect(gate.send(p)).rejects.toThrow(EgressBlocked);
+  });
+
+  it("schema rejects image data on a non-present visual", async () => {
+    const p = fixturePacket();
+    p.policy.mode = "wireframe";
+    p.visual = { present: false, regions_redacted: 0, data_b64: "AAAA" };
+    await expect(gate.send(p)).rejects.toThrow();
+    expect(transport.calls).toHaveLength(0);
+  });
+});
+
 describe("EgressGate: caps", () => {
   it("blocks oversized packets", async () => {
     const small = new EgressGate({
