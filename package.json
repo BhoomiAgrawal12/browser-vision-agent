@@ -1,0 +1,19 @@
+{
+  "name": "kavach",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Privacy-preserving on-device vision agent for browsers. A local eye, a remote brain, and an unbreakable filter in between.",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
