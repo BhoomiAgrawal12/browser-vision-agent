@@ -1,0 +1,22 @@
+{
+  "name": "@kavach/server",
+  "version": "0.1.0",
+  "description": "Kavach planner service: validates Sanitized Context Packets, re-scans them, plans against the redaction legend, and guards its own output.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kavach/core": "*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}
