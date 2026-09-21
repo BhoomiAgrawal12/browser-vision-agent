@@ -1,0 +1,25 @@
+{
+  "name": "@kavach/perception",
+  "version": "0.1.0",
+  "description": "Kavach perception: capture, fresh-canvas redaction composition, self-check verification, dirty-region tiling. Pure core, thin browser wrappers.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./compose": "./src/compose.ts",
+    "./tiles": "./src/tiles.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kavach/core": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}
