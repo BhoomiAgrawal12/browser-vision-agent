@@ -6,7 +6,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "bench"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -14,7 +15,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:egress": "node tools/check-egress.mjs",
     "demo:deblur": "node tools/attack-deblur/attack.mjs",
-    "demo:deblur:selftest": "node tools/attack-deblur/attack.mjs --self-test"
+    "demo:deblur:selftest": "node tools/attack-deblur/attack.mjs --self-test",
+    "bench": "npm run bench -w @kavach/bench"
   },
   "engines": {
     "node": ">=20"
