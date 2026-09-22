@@ -12,7 +12,9 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run check:egress && npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "check:egress": "node tools/check-egress.mjs"
+    "check:egress": "node tools/check-egress.mjs",
+    "demo:deblur": "node tools/attack-deblur/attack.mjs",
+    "demo:deblur:selftest": "node tools/attack-deblur/attack.mjs --self-test"
   },
   "engines": {
     "node": ">=20"
