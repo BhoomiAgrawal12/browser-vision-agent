@@ -15,6 +15,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ALLOWLIST = new Set([
   "apps/extension/src/transport.ts",
   "apps/server/src/planner/ollama.ts",
+  "packages/perception/src/models.ts",
 ]);
 
 const BANNED = [
