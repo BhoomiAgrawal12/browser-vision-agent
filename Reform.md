@@ -351,7 +351,7 @@ control.
 - [x] Keep the deterministic heuristic/state-machine planner as the default for
   common forms and allow configured model use only by explicit mode or ambiguity.
 - [x] Add `npm run dev` to build the extension and start the loopback planner
-  using optional `.env.local` configuration.
+  using optional `.env` and `.env.local` configuration.
 - [x] Clear the in-memory vault and stop active work when a tab changes,
   navigates, or closes.
 - [x] Add the security status checklist, activity audit trail, privacy receipts,

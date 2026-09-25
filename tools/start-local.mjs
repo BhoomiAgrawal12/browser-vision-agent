@@ -5,7 +5,10 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const configFile = resolve(ROOT, process.env["KAVACH_CONFIG"] ?? ".env.local");
+const configuredPath = process.env["KAVACH_CONFIG"];
+const configFiles = configuredPath
+  ? [resolve(ROOT, configuredPath)]
+  : [resolve(ROOT, ".env"), resolve(ROOT, ".env.local")];
 
 function readLocalConfig(path) {
   if (!existsSync(path)) return {};
@@ -30,7 +33,10 @@ const child = spawn(
   ["--import", "tsx/esm", "apps/server/src/main.ts"],
   {
     cwd: ROOT,
-    env: { ...readLocalConfig(configFile), ...process.env },
+    env: {
+      ...Object.assign({}, ...configFiles.map((path) => readLocalConfig(path))),
+      ...process.env,
+    },
     stdio: "inherit",
   },
 );
