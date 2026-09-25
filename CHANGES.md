@@ -4,6 +4,13 @@ This file records concise summaries of project work. Add new entries at the top 
 
 ## 2026-09-25
 
+### Sidebar UI Refresh
+
+- Reworked the extension sidebar into a lighter green-and-white layout with more whitespace, calmer copy, readable two-column metrics, and clearer security checks.
+- Added a compact local-first brand header, responsive narrow-sidebar behavior, accessible focus states, and softer cards/dialogs without changing panel behavior or element IDs.
+
+## 2026-09-25
+
 ### Phase 0 Guardrails And Automated Coverage
 
 - Made Tier 0 media perception fail closed: images, canvases, videos, and iframes are masked until a vision pass explains their pixels; hidden and `aria-hidden` content is excluded.
