@@ -330,11 +330,45 @@ The benchmark must distinguish between:
 
 ### Phase 0: Stabilize the existing product
 
-- Make `npm test`, typechecking, and extension builds pass.
-- Verify the complete Tier 0 loop in Chrome and Firefox.
-- Confirm that raw PII never appears in outbound packets.
-- Verify receipts, rate limits, tripwires, vault scans, and re-grounding.
-- Fix all known demo and UI issues before adding new media behavior.
+Phase 0 is the local-first, deterministic browser-agent foundation. The model
+backend is replaceable and never receives raw browser values or direct browser
+control.
+
+#### Completed
+
+- [x] Make `npm test`, typechecking, egress checks, and extension builds pass.
+- [x] Add automated coverage for DOM forms, labels, open shadow roots, hidden
+  content, fail-closed media, action re-grounding, readonly controls, server
+  logs, receipts, rate limits, tripwires, vault scans, and response guards.
+- [x] Confirm that raw PII is blocked from outbound packets, planner responses,
+  server logs, and privacy receipts.
+- [x] Require typed `ActionPlan` output with closed verbs, packet-bound targets,
+  placeholder ownership, confirmation gates, and deterministic fallback plans.
+- [x] Clear the in-memory vault and stop active work when a tab changes,
+  navigates, or closes.
+- [x] Add the security status checklist, activity audit trail, privacy receipts,
+  and the light, spacious green-and-white sidebar UI.
+- [x] Make unknown or unsupported media fail closed until a trusted vision pass
+  explains it.
+
+#### Current Tasks
+
+- [ ] Verify the complete Tier 0 loop in supported Chrome and Firefox builds.
+- [ ] Make the planner backend provider-neutral through one `PlannerBackend`
+  contract and generic endpoint/model configuration; no provider-specific
+  names or credentials belong in project source.
+- [ ] Load planner credentials only from ignored local configuration or runtime
+  environment variables; never commit keys, endpoints, or test credentials.
+- [ ] Keep the deterministic heuristic/state-machine planner as the default
+  path for common forms; use a model only for ambiguous intent or structure,
+  and treat its output as an untrusted suggestion.
+- [ ] Complete the user flow for routine form filling: request missing private
+  values locally, fill safe fields automatically, re-perceive after changes,
+  and require explicit approval before submission or other risky actions.
+- [ ] Provide a one-command local startup path so users do not manually launch
+  each development service or load internal plumbing.
+- [ ] Keep end-to-end fixtures synthetic and document clearly that any remote
+  test endpoint is not a local model and must not receive real user data.
 
 ### Phase 1: Images and metadata
 

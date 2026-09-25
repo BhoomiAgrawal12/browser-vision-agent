@@ -4,6 +4,13 @@ This file records concise summaries of project work. Add new entries at the top 
 
 ## 2026-09-25
 
+### Reform Phase 0 Scope Update
+
+- Split `Reform.md` Phase 0 into completed safeguards and remaining product tasks.
+- Documented the provider-neutral planner contract, deterministic fallback path, external-only credentials, local startup work, and supported-browser validation boundary.
+
+## 2026-09-25
+
 ### Sidebar UI Refresh
 
 - Reworked the extension sidebar into a lighter green-and-white layout with more whitespace, calmer copy, readable two-column metrics, and clearer security checks.
