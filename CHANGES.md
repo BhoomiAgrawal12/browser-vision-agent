@@ -11,6 +11,7 @@ This file records concise summaries of project work. Add new entries at the top 
 - Added `npm run dev`, ignored `.env`/`.env.local` loading, and a provider-neutral `.env.example` without committing credentials.
 - Added `planner_used` to safe `plan_sent` logs so configured end-to-end runs can be inspected without identifying the backend.
 - Updated startup status output to report only generic planner mode, never endpoint or provider details.
+- Configured planner responses that fail the action guard now fall back to the deterministic plan instead of stalling the task.
 
 ## 2026-09-25
 

@@ -146,8 +146,19 @@ export function makeServer(options: ServerOptions = {}): Server {
           shouldUseConfiguredPlanner(packet, deterministicPlan, configuredPlanner)
         ) {
           try {
-            plan = await plannerPlan(packet, configuredPlanner);
-            plannerUsed = "configured";
+            const configuredPlan = await plannerPlan(packet, configuredPlanner);
+            const configuredIssues = guardPlanAgainstPacket(configuredPlan, packet);
+            if (configuredIssues.length > 0) {
+              auditLog(log, "planner_fallback", {
+                packet_key: packetLogKey(packet.packet_id),
+                reason: "configured_plan_failed_action_guard",
+                issues: configuredIssues.length,
+                issue_steps: configuredIssues.slice(0, 4).map((issue) => `${issue.step}:${issue.problem}`),
+              });
+            } else {
+              plan = configuredPlan;
+              plannerUsed = "configured";
+            }
           } catch (e) {
             auditLog(log, "planner_fallback", {
               packet_key: packetLogKey(packet.packet_id),
@@ -163,7 +174,7 @@ export function makeServer(options: ServerOptions = {}): Server {
         if (issues.length > 0) {
           auditLog(log, "plan_rejected", {
             packet_key: packetLogKey(packet.packet_id),
-            reason: "action_guard",
+            reason: "deterministic_plan_failed_action_guard",
             issues: issues.length,
           });
           json(res, 500, { error: "planner output failed the guard" });
