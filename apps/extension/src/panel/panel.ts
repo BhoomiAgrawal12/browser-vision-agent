@@ -1,5 +1,10 @@
 import { defaultRegistry } from "@kavach/core/detectors";
-import { EgressBlocked, EgressGate, type PrivacyReceipt } from "@kavach/core/gate";
+import {
+  EgressBlocked,
+  EgressGate,
+  type EgressAuditEvent,
+  type PrivacyReceipt,
+} from "@kavach/core/gate";
 import { PolicyEngine } from "@kavach/core/policy";
 import {
   SCP_SCHEMA_ID,
@@ -53,6 +58,16 @@ function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   line.textContent = text;
   logEl.append(line);
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function renderAuditEvent(event: EgressAuditEvent): void {
+  const metrics = event.metrics
+    ? ` (${Object.entries(event.metrics)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(", ")})`
+    : "";
+  const kind = event.outcome === "blocked" || event.outcome === "error" ? "err" : "dim";
+  log(`  gate.${event.stage}: ${event.outcome} - ${event.detail ?? "check complete"}${metrics}`, kind);
 }
 
 const stats = { redacted: 0, sent: 0, bytes: 0 };
@@ -114,12 +129,14 @@ const vault = new Vault();
 const registry = defaultRegistry();
 const policy = new PolicyEngine(registry, vault, POLICY_VERSION);
 let lastHostname: string | null = null;
+let lastTabId: number | null = null;
 let stopRequested = false;
 
 const gate = new EgressGate({
   transport: makeTransport(DEFAULT_SERVER_URL),
   registry,
   vault,
+  audit: { append: renderAuditEvent },
   receipts: {
     append: (r) => {
       renderReceipt(r);
@@ -305,10 +322,16 @@ async function runTask(): Promise<void> {
   try {
     const tab = await activeTab();
     const hostname = tab.url ? new URL(tab.url).hostname : "";
+    if (lastTabId !== null && tab.id !== lastTabId) {
+      vault.wipe();
+      lastHostname = null;
+      log("active tab changed; vault wiped", "dim");
+    }
     if (lastHostname !== null && hostname !== lastHostname) {
       vault.wipe();
       log("origin changed; vault wiped", "dim");
     }
+    lastTabId = tab.id!;
     lastHostname = hostname;
 
     for (let i = 1; i <= MAX_ITERATIONS && !stopRequested; i++) {
@@ -382,7 +405,16 @@ async function runTask(): Promise<void> {
         }
         let grounding: Grounding | undefined;
         const el = packet.elements.find((x) => x.id === step.target_element_id);
-        if (el) grounding = { id: el.id, role: el.role, label: el.label, box: el.box };
+        if (el) {
+          grounding = {
+            id: el.id,
+            role: el.role,
+            label: el.label,
+            box: el.box,
+            ...(el.state?.disabled !== undefined ? { disabled: el.state.disabled } : {}),
+            ...(el.state?.readonly !== undefined ? { readonly: el.state.readonly } : {}),
+          };
+        }
 
         const result = await sendToTab<ExecuteResponse>(tab.id!, {
           type: "execute",
@@ -429,6 +461,29 @@ async function runTask(): Promise<void> {
 runBtn.addEventListener("click", () => void runTask());
 stopBtn.addEventListener("click", () => {
   stopRequested = true;
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId !== lastTabId) return;
+  vault.wipe();
+  stopRequested = true;
+  lastTabId = null;
+  lastHostname = null;
+  log("active tab closed; vault wiped", "dim");
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  if (lastTabId === null || tabId === lastTabId) return;
+  vault.wipe();
+  stopRequested = true;
+  lastTabId = tabId;
+  lastHostname = null;
+  log("active tab changed; task stopped and vault wiped", "dim");
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId !== lastTabId || !changeInfo.url) return;
+  vault.wipe();
+  stopRequested = true;
+  lastHostname = null;
+  log("active tab navigated; vault wiped", "dim");
 });
 renderStats();
 log("ready. open a page, describe a task, press Run.", "dim");

@@ -1,5 +1,5 @@
 import type { RawRegion } from "@kavach/core/policy";
-import type { OriginClass, PlanStep } from "@kavach/core/schema";
+import type { ElementRole, OriginClass, PlanStep } from "@kavach/core/schema";
 
 /**
  * The typed message protocol between the side panel (orchestrator) and the
@@ -25,9 +25,11 @@ export interface PerceiveResponse {
 /** What the executor verifies before touching an element. */
 export interface Grounding {
   id: string;
-  role: string;
+  role: ElementRole;
   label: string | null;
   box: [number, number, number, number];
+  disabled?: boolean;
+  readonly?: boolean;
 }
 
 /** A plan step with any placeholder or prompt already resolved to text. */

@@ -124,6 +124,16 @@ export function guardPlanAgainstPacket(
   }
 
   const ids = new Map(packet.elements.map((e) => [e.id, e]));
+  const placeholderOwners = new Map<string, string>();
+  const unavailableTokens = new Set<string>();
+  for (const element of packet.elements) {
+    const value = element.value;
+    if (value?.kind === "placeholder") {
+      placeholderOwners.set(value.token, element.id);
+    } else if (value?.kind === "redacted" && value.token) {
+      unavailableTokens.add(value.token);
+    }
+  }
 
   for (const [i, step] of plan.steps.entries()) {
     if (step.target_element_id) {
@@ -156,6 +166,22 @@ export function guardPlanAgainstPacket(
         step: i,
         problem: "placeholder values may only be used with the type action",
       });
+    }
+    if (step.value?.kind === "placeholder") {
+      const owner = placeholderOwners.get(step.value.token);
+      if (!owner) {
+        issues.push({
+          step: i,
+          problem: unavailableTokens.has(step.value.token)
+            ? `placeholder ${step.value.token} is not recoverable`
+            : `placeholder ${step.value.token} is not present in the packet`,
+        });
+      } else if (step.target_element_id !== owner) {
+        issues.push({
+          step: i,
+          problem: `placeholder ${step.value.token} belongs to element ${owner}`,
+        });
+      }
     }
   }
   return issues;

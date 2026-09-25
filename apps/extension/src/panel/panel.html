@@ -33,6 +33,16 @@
     <div class="stat"><span id="stat-leaks">0</span><label>raw PII leaked</label></div>
   </section>
 
+  <section class="security-status">
+    <h2>Security status</h2>
+    <div class="checks">
+      <div class="check ok" id="check-local"><span>LOCAL</span> perception stays in this browser</div>
+      <div class="check ok" id="check-vault"><span>MEMORY</span> vault is session-only and tab-scoped</div>
+      <div class="check ok" id="check-gate"><span>GATE</span> outbound packets are schema- and leak-checked</div>
+      <div class="check ok" id="check-receipts"><span>RECEIPTS</span> every permitted send is recorded below</div>
+    </div>
+  </section>
+
   <section class="log-section">
     <h2>Activity</h2>
     <div id="log" class="log"></div>

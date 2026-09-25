@@ -85,7 +85,7 @@ function structuralClass(el: Element, label: string | null): PiiClass | undefine
 
 /* Role mapping. */
 
-function roleOf(el: Element): ElementRole {
+export function roleOf(el: Element): ElementRole {
   const aria = el.getAttribute("role");
   const tag = el.tagName.toLowerCase();
   if (el instanceof HTMLInputElement) {
@@ -208,8 +208,21 @@ function isVisible(el: Element): boolean {
   if (rect.width <= 1 || rect.height <= 1) return false;
   if (rect.bottom < 0 || rect.right < 0) return false;
   if (rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+  let ancestor: Element | null = el;
+  while (ancestor) {
+    if (ancestor.getAttribute("aria-hidden") === "true") return false;
+    const root = ancestor.getRootNode();
+    if ("host" in root && root.host instanceof Element) ancestor = root.host;
+    else ancestor = ancestor.parentElement;
+  }
   const style = getComputedStyle(el);
-  return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0.05;
+  const opacity = Number.parseFloat(style.opacity);
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.visibility !== "collapse" &&
+    (!Number.isFinite(opacity) || opacity > 0.05)
+  );
 }
 
 const RISK_LABEL = /submit|pay|transfer|confirm|delete|remove|apply|proceed|place order|buy|send/i;
@@ -348,17 +361,9 @@ export function perceive(doc: Document): Snapshot {
       if (risk) region.risk = risk;
       push(el, region);
     } else if (media) {
-      // Cross-origin iframes, canvases and images: structure cannot vouch
-      // for their pixels. Tier 0 has no vision channel, so fail closed.
-      const sameOriginFrame =
-        tag === "iframe" &&
-        (() => {
-          try {
-            return (el as HTMLIFrameElement).contentDocument !== null;
-          } catch {
-            return false;
-          }
-        })();
+      // Tier 0 cannot inspect pixels safely. Even same-origin media may carry
+      // sensitive content, so every media box is masked until a vision pass
+      // positively explains it.
       push(el, {
         role,
         label,
@@ -366,8 +371,7 @@ export function perceive(doc: Document): Snapshot {
         source: "vision",
         confidence: 0.5,
         evidence: [`structural:tag=${tag}`],
-        explained: role === "image" && sameOriginLoadedImage(el),
-        ...(sameOriginFrame ? { explained: true } : {}),
+        explained: false,
       });
     } else if (isTextBlock && textBlocks < MAX_TEXT_BLOCKS) {
       const text = directText(el);
@@ -411,14 +415,4 @@ function directText(el: Element): string {
     }
   }
   return out.trim().replace(/\s+/g, " ");
-}
-
-function sameOriginLoadedImage(el: Element): boolean {
-  if (!(el instanceof HTMLImageElement)) return false;
-  try {
-    const url = new URL(el.currentSrc || el.src, location.href);
-    return url.origin === location.origin;
-  } catch {
-    return false;
-  }
 }

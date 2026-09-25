@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import {
   SanitizedContextPacket,
   guardPlanAgainstPacket,
@@ -48,6 +49,20 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
+type SafeLogValue = string | number | boolean | readonly string[];
+
+function auditLog(
+  log: (line: string) => void,
+  event: string,
+  fields: Record<string, SafeLogValue> = {},
+): void {
+  log(JSON.stringify({ timestamp_ms: Date.now(), event, ...fields }));
+}
+
+function packetLogKey(packetId: string): string {
+  return `pkt_${createHash("sha256").update(packetId).digest("hex").slice(0, 16)}`;
+}
+
 export interface ServerOptions {
   env?: Record<string, string | undefined>;
   log?: (line: string) => void;
@@ -74,12 +89,17 @@ export function makeServer(options: ServerOptions = {}): Server {
         try {
           parsed = JSON.parse(raw);
         } catch {
+          auditLog(log, "packet_rejected", { reason: "invalid_json" });
           json(res, 400, { error: "invalid JSON" });
           return;
         }
 
         const result = SanitizedContextPacket.safeParse(parsed);
         if (!result.success) {
+          auditLog(log, "packet_rejected", {
+            reason: "schema_validation",
+            issues: result.error.issues.length,
+          });
           json(res, 422, {
             error: "packet failed schema validation",
             issues: result.error.issues.slice(0, 10),
@@ -87,14 +107,24 @@ export function makeServer(options: ServerOptions = {}): Server {
           return;
         }
         const packet = result.data;
+        auditLog(log, "packet_received", {
+          packet_key: packetLogKey(packet.packet_id),
+          mode: packet.policy.mode,
+          elements: packet.elements.length,
+          redactions: packet.visual.regions_redacted,
+          visual: packet.visual.present,
+          planner: ollama ? "ollama" : "heuristic",
+        });
 
         // Defence in depth: a packet carrying raw PII is a broken client.
         const rescanned = rescanPacket(packet);
         if (rescanned.length > 0) {
-          log(
-            `REJECTED packet ${packet.packet_id}: re-scan found ` +
-              rescanned.map((i) => `${i.cls} at ${i.path}`).join(", "),
-          );
+          auditLog(log, "packet_rejected", {
+            packet_key: packetLogKey(packet.packet_id),
+            reason: "rescan_detected_pii",
+            classes: [...new Set(rescanned.map((i) => i.cls))],
+            findings: rescanned.length,
+          });
           json(res, 422, {
             error: "packet rejected: sanitization incomplete",
             classes: [...new Set(rescanned.map((i) => i.cls))],
@@ -107,7 +137,11 @@ export function makeServer(options: ServerOptions = {}): Server {
           try {
             plan = await ollamaPlan(packet, ollama);
           } catch (e) {
-            log(`ollama failed (${(e as Error).message}); using heuristic planner`);
+            auditLog(log, "planner_fallback", {
+              packet_key: packetLogKey(packet.packet_id),
+              reason: "ollama_failed",
+              error: e instanceof Error ? e.name : "unknown",
+            });
             plan = heuristicPlan(packet);
           }
         } else {
@@ -117,21 +151,33 @@ export function makeServer(options: ServerOptions = {}): Server {
         // The server guards its own output before it leaves.
         const issues = guardPlanAgainstPacket(plan, packet);
         if (issues.length > 0) {
-          log(
-            `planner produced a guarded-out plan for ${packet.packet_id}: ` +
-              issues.map((i) => i.problem).join("; "),
-          );
+          auditLog(log, "plan_rejected", {
+            packet_key: packetLogKey(packet.packet_id),
+            reason: "action_guard",
+            issues: issues.length,
+          });
           json(res, 500, { error: "planner output failed the guard" });
           return;
         }
 
+        auditLog(log, "plan_sent", {
+          packet_key: packetLogKey(packet.packet_id),
+          steps: plan.steps.length,
+          confidence: plan.confidence,
+          needs_more_context: plan.needs_more_context,
+        });
         json(res, 200, plan);
         return;
       }
 
       json(res, 404, { error: "not found" });
     } catch (e) {
-      json(res, 500, { error: (e as Error).message });
+      auditLog(log, "request_error", {
+        error: e instanceof Error ? e.name : "unknown",
+      });
+      // Never echo planner or parser messages: a malformed response can carry
+      // page-derived text, and errors are not a safe data channel.
+      json(res, 500, { error: "internal planner error" });
     }
   });
 }

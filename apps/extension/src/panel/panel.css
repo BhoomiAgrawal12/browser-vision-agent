@@ -77,6 +77,17 @@ button.danger { background: var(--bad); }
 #stat-leaks { color: var(--good); }
 #stat-leaks.bad { color: var(--bad); }
 
+.security-status {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 8px;
+}
+.checks { display: grid; gap: 4px; }
+.check { color: var(--good); font-size: 11px; }
+.check span { display: inline-block; min-width: 62px; color: var(--ink-soft); font-size: 9px; letter-spacing: 0.6px; }
+.check.bad { color: var(--bad); }
+
 .log {
   background: var(--panel);
   border: 1px solid var(--rule);

@@ -1,7 +1,7 @@
 import { makeServer } from "./server.js";
 
 const port = Number(process.env["PORT"] ?? 8787);
-makeServer().listen(port, () => {
+makeServer().listen(port, "127.0.0.1", () => {
   console.log(`kavach planner listening on http://127.0.0.1:${port}`);
   console.log(
     process.env["OLLAMA_URL"]

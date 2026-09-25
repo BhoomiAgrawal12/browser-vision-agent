@@ -1,4 +1,5 @@
 import type { ExecuteResponse, Grounding, ResolvedStep } from "../shared/messages.js";
+import { roleOf } from "./perceive.js";
 
 /**
  * The hands, with the re-grounding check in front of them. Between capture
@@ -11,11 +12,18 @@ const GEOMETRY_TOLERANCE_PX = 48;
 
 export function reground(el: Element | undefined, grounding: Grounding): string | null {
   if (!el || !el.isConnected) return "element no longer in the document";
+  if (roleOf(el) !== grounding.role) return "element role changed since capture";
   const rect = el.getBoundingClientRect();
   const [gx, gy] = [grounding.box[0], grounding.box[1]];
   const moved = Math.hypot(rect.x - gx, rect.y - gy);
   if (moved > GEOMETRY_TOLERANCE_PX) {
     return `element moved ${Math.round(moved)}px since capture`;
+  }
+  if (
+    Math.abs(rect.width - grounding.box[2]) > GEOMETRY_TOLERANCE_PX ||
+    Math.abs(rect.height - grounding.box[3]) > GEOMETRY_TOLERANCE_PX
+  ) {
+    return "element size changed since capture";
   }
   if (grounding.label) {
     const current =
@@ -23,15 +31,46 @@ export function reground(el: Element | undefined, grounding: Grounding): string 
       el.textContent?.trim().replace(/\s+/g, " ").slice(0, 300) ||
       null;
     // Labels are compared loosely: dynamic counters ("Inbox (3)") shift.
-    if (current && !current.includes(grounding.label.slice(0, 40)) && !grounding.label.includes(current.slice(0, 40))) {
+    if (!current || (!current.includes(grounding.label.slice(0, 40)) && !grounding.label.includes(current.slice(0, 40)))) {
       return "element label changed since capture";
     }
   }
   const style = getComputedStyle(el);
-  if (style.display === "none" || style.visibility === "hidden") {
+  if (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    style.visibility === "collapse" ||
+    el.getAttribute("aria-hidden") === "true"
+  ) {
     return "element is no longer visible";
   }
+  const disabled = isDisabled(el);
+  if (grounding.disabled !== undefined && disabled !== grounding.disabled) {
+    return "element disabled state changed since capture";
+  }
+  const readonly = isReadonly(el);
+  if (grounding.readonly !== undefined && readonly !== grounding.readonly) {
+    return "element readonly state changed since capture";
+  }
   return null;
+}
+
+function isDisabled(el: Element): boolean {
+  return (
+    el.getAttribute("aria-disabled") === "true" ||
+    (el instanceof HTMLButtonElement && el.disabled) ||
+    (el instanceof HTMLInputElement && el.disabled) ||
+    (el instanceof HTMLTextAreaElement && el.disabled) ||
+    (el instanceof HTMLSelectElement && el.disabled)
+  );
+}
+
+function isReadonly(el: Element): boolean {
+  return (
+    (el instanceof HTMLInputElement && el.readOnly) ||
+    (el instanceof HTMLTextAreaElement && el.readOnly) ||
+    el.getAttribute("aria-readonly") === "true"
+  );
 }
 
 /** Set a value the way a user would, so framework listeners fire. */
@@ -75,6 +114,7 @@ export async function executeStep(
 
     case "click": {
       if (!el) return { ok: false, error: "not_found" };
+      if (isDisabled(el)) return { ok: false, error: "failed", detail: "target is disabled" };
       (el as HTMLElement).scrollIntoView({ block: "center" });
       (el as HTMLElement).click();
       return { ok: true };
@@ -82,12 +122,16 @@ export async function executeStep(
 
     case "focus": {
       if (!el) return { ok: false, error: "not_found" };
+      if (isDisabled(el)) return { ok: false, error: "failed", detail: "target is disabled" };
       (el as HTMLElement).focus();
       return { ok: true };
     }
 
     case "type": {
       if (!el) return { ok: false, error: "not_found" };
+      if (isDisabled(el) || isReadonly(el)) {
+        return { ok: false, error: "failed", detail: "target cannot accept text" };
+      }
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         el.focus();
         setNativeValue(el, step.text ?? "");
@@ -104,6 +148,9 @@ export async function executeStep(
 
     case "clear": {
       if (!el) return { ok: false, error: "not_found" };
+      if (isDisabled(el) || isReadonly(el)) {
+        return { ok: false, error: "failed", detail: "target cannot be cleared" };
+      }
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         el.focus();
         setNativeValue(el, "");
@@ -114,6 +161,7 @@ export async function executeStep(
 
     case "select": {
       if (!el) return { ok: false, error: "not_found" };
+      if (isDisabled(el)) return { ok: false, error: "failed", detail: "target is disabled" };
       if (el instanceof HTMLSelectElement) {
         const wanted = (step.optionLabel ?? "").trim().toLowerCase();
         const option = [...el.options].find(

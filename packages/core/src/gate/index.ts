@@ -53,6 +53,33 @@ export interface PrivacyReceipt {
   };
 }
 
+export type EgressAuditStage =
+  | "schema"
+  | "tripwire"
+  | "vault"
+  | "visual"
+  | "size"
+  | "rate_limit"
+  | "receipt"
+  | "network"
+  | "response";
+
+export type EgressAuditOutcome = "pass" | "blocked" | "error";
+
+/** Structured, payload-free evidence for the Phase 0 security workflow. */
+export interface EgressAuditEvent {
+  timestamp_ms: number;
+  packet_id?: string;
+  stage: EgressAuditStage;
+  outcome: EgressAuditOutcome;
+  detail?: string;
+  metrics?: Readonly<Record<string, string | number | boolean>>;
+}
+
+export interface AuditSink {
+  append(event: EgressAuditEvent): Promise<void> | void;
+}
+
 export interface Transport {
   /** POST the serialized packet; return the parsed JSON response body. */
   post(serialized: string): Promise<unknown>;
@@ -67,6 +94,7 @@ export interface EgressGateOptions {
   registry: RecognizerRegistry;
   vault: Vault;
   receipts: ReceiptSink;
+  audit?: AuditSink;
   maxPacketBytes?: number;
   /** Requests allowed per window. */
   rateLimit?: { max: number; windowMs: number };
@@ -91,6 +119,16 @@ function defaultMakeId(): string {
   return "rcpt_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function serializeAttempt(input: unknown): { text: string; bytes: number } {
+  try {
+    const text = JSON.stringify(input) ?? "undefined";
+    return { text, bytes: new TextEncoder().encode(text).byteLength };
+  } catch {
+    const text = "<unserializable>";
+    return { text, bytes: new TextEncoder().encode(text).byteLength };
+  }
+}
+
 export class EgressGate {
   private readonly maxPacketBytes: number;
   private readonly rate: { max: number; windowMs: number };
@@ -105,10 +143,61 @@ export class EgressGate {
     this.makeId = opts.makeId ?? defaultMakeId;
   }
 
+  private async audit(
+    event: Omit<EgressAuditEvent, "timestamp_ms">,
+  ): Promise<void> {
+    if (!this.opts.audit) return;
+    try {
+      await this.opts.audit.append({ timestamp_ms: this.now(), ...event });
+    } catch {
+      // Audit collection must not alter the privacy decision or network path.
+    }
+  }
+
   async send(packetInput: unknown): Promise<ActionPlan> {
     // 1. The wire schema is the first and non-negotiable check.
-    const packet = SanitizedContextPacket.parse(packetInput);
+    const parsed = SanitizedContextPacket.safeParse(packetInput);
+    if (!parsed.success) {
+      const attempted = serializeAttempt(packetInput);
+      await this.opts.receipts.append({
+        receipt_id: this.makeId(),
+        packet_id: "unknown",
+        timestamp_ms: this.now(),
+        mode: "unknown",
+        policy_version: "unknown",
+        outcome: "blocked",
+        blocked_reasons: ["schema: packet failed schema validation"],
+        sent: {
+          bytes: attempted.bytes,
+          payload_sha256: await sha256Hex(attempted.text),
+          image_included: false,
+        },
+        redactions: { total: 0, by_legend_class: {} },
+        verification: { tripwire_passed: false, vault_scan_passed: false },
+      });
+      await this.audit({
+        stage: "schema",
+        outcome: "blocked",
+        detail: "packet failed schema validation",
+        metrics: { issues: parsed.error.issues.length },
+      });
+      await this.audit({
+        stage: "receipt",
+        outcome: "blocked",
+        detail: "schema-failure receipt recorded",
+      });
+      throw parsed.error;
+    }
+    const packet = parsed.data;
+    await this.audit({
+      stage: "schema",
+      outcome: "pass",
+      packet_id: packet.packet_id,
+      detail: "packet validated",
+      metrics: { elements: packet.elements.length, visual: packet.visual.present },
+    });
     const serialized = JSON.stringify(packet);
+    const serializedBytes = new TextEncoder().encode(serialized).byteLength;
 
     // The image travels as base64, whose random digit runs would trip the
     // text detectors. Its safety is proven by the composer's pixel-level
@@ -130,12 +219,40 @@ export class EgressGate {
     // 3. Literal vault values in the payload are always a block.
     const vaultLeaks = this.opts.vault.findLeaks(scannable);
 
+    await this.audit({
+      stage: "tripwire",
+      outcome: survivors.length === 0 ? "pass" : "blocked",
+      packet_id: packet.packet_id,
+      detail: survivors.length === 0 ? "no strong PII detections" : "strong PII detection found",
+      metrics: { detections: survivors.length },
+    });
+    await this.audit({
+      stage: "vault",
+      outcome: vaultLeaks.length === 0 ? "pass" : "blocked",
+      packet_id: packet.packet_id,
+      detail: vaultLeaks.length === 0 ? "no vault values found" : "vault value found",
+      metrics: { leaks: vaultLeaks.length },
+    });
+
     const reasons: string[] = [];
     if (packet.visual.data_b64 !== undefined) {
       const actual = await sha256Hex(packet.visual.data_b64);
       if (actual !== packet.visual.sha256) {
         reasons.push("visual: sha256 does not match the image payload");
       }
+      await this.audit({
+        stage: "visual",
+        outcome: actual === packet.visual.sha256 ? "pass" : "blocked",
+        packet_id: packet.packet_id,
+        detail: actual === packet.visual.sha256 ? "visual hash verified" : "visual hash mismatch",
+      });
+    } else {
+      await this.audit({
+        stage: "visual",
+        outcome: "pass",
+        packet_id: packet.packet_id,
+        detail: "no visual payload",
+      });
     }
     for (const s of survivors) {
       reasons.push(`tripwire: ${s.cls} detected in outbound payload`);
@@ -144,9 +261,16 @@ export class EgressGate {
       reasons.push(`vault: value behind ${t} appears in outbound payload`);
     }
     // 4. Volume caps: a looping bug must not exfiltrate by sheer size.
-    if (serialized.length > this.maxPacketBytes) {
-      reasons.push(`size: packet ${serialized.length} bytes exceeds cap`);
+    if (serializedBytes > this.maxPacketBytes) {
+      reasons.push(`size: packet ${serializedBytes} bytes exceeds cap`);
     }
+    await this.audit({
+      stage: "size",
+      outcome: serializedBytes <= this.maxPacketBytes ? "pass" : "blocked",
+      packet_id: packet.packet_id,
+      detail: serializedBytes <= this.maxPacketBytes ? "packet within size cap" : "packet exceeds size cap",
+      metrics: { bytes: serializedBytes, max_bytes: this.maxPacketBytes },
+    });
 
     const byClass: Record<string, number> = {};
     for (const el of packet.elements) {
@@ -163,7 +287,7 @@ export class EgressGate {
       mode: packet.policy.mode,
       policy_version: packet.policy.policy_version,
       sent: {
-        bytes: serialized.length,
+        bytes: serializedBytes,
         payload_sha256: await sha256Hex(serialized),
         image_included: packet.visual.present,
         ...(packet.visual.sha256 ? { image_sha256: packet.visual.sha256 } : {}),
@@ -185,13 +309,54 @@ export class EgressGate {
         blocked_reasons: reasons,
         ...baseReceipt,
       });
+      await this.audit({
+        stage: "receipt",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "blocked receipt recorded",
+        metrics: { reasons: reasons.length },
+      });
+      await this.audit({
+        stage: "network",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "request not sent",
+      });
       throw new EgressBlocked(reasons);
     }
 
     // 5. Rate limit.
     const cutoff = this.now() - this.rate.windowMs;
     this.sendTimes = this.sendTimes.filter((t) => t > cutoff);
-    if (this.sendTimes.length >= this.rate.max) throw new EgressRateLimited();
+    if (this.sendTimes.length >= this.rate.max) {
+      const reason = "rate_limit: request window exceeded";
+      await this.opts.receipts.append({
+        receipt_id: this.makeId(),
+        outcome: "blocked",
+        blocked_reasons: [reason],
+        ...baseReceipt,
+      });
+      await this.audit({
+        stage: "rate_limit",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "request rate limit reached",
+        metrics: { max: this.rate.max, window_ms: this.rate.windowMs },
+      });
+      await this.audit({
+        stage: "receipt",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "rate-limit receipt recorded",
+      });
+      await this.audit({
+        stage: "network",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "request not sent",
+      });
+      throw new EgressRateLimited();
+    }
     this.sendTimes.push(this.now());
 
     // 6. Receipt before send: the record exists even if the network fails.
@@ -200,18 +365,76 @@ export class EgressGate {
       outcome: "sent",
       ...baseReceipt,
     });
+    await this.audit({
+      stage: "receipt",
+      outcome: "pass",
+      packet_id: packet.packet_id,
+      detail: "sent receipt recorded before network request",
+    });
 
     // 7. The one network call.
-    const response = await this.opts.transport.post(serialized);
+    let response: unknown;
+    try {
+      response = await this.opts.transport.post(serialized);
+      await this.audit({
+        stage: "network",
+        outcome: "pass",
+        packet_id: packet.packet_id,
+        detail: "request sent and response received",
+      });
+    } catch (error) {
+      await this.audit({
+        stage: "network",
+        outcome: "error",
+        packet_id: packet.packet_id,
+        detail: "planner request failed",
+      });
+      throw error;
+    }
 
     // 8. Validate what came back before anyone else sees it.
-    const plan = ActionPlan.parse(response);
-    const issues = guardPlanAgainstPacket(plan, packet);
-    if (issues.length > 0) {
-      throw new EgressBlocked(
-        issues.map((i) => `plan guard (step ${i.step}): ${i.problem}`),
-      );
+    let plan: ActionPlan;
+    try {
+      plan = ActionPlan.parse(response);
+    } catch (error) {
+      await this.audit({
+        stage: "response",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "planner response failed schema validation",
+      });
+      throw error;
     }
+    const issues = guardPlanAgainstPacket(plan, packet);
+    const planSerialized = JSON.stringify(plan);
+    const planFindings = this.opts.registry.analyze(planSerialized, {
+      threshold: TRIPWIRE_THRESHOLD,
+    });
+    const planVaultLeaks = this.opts.vault.findLeaks(planSerialized);
+    if (issues.length > 0 || planFindings.length > 0 || planVaultLeaks.length > 0) {
+      await this.audit({
+        stage: "response",
+        outcome: "blocked",
+        packet_id: packet.packet_id,
+        detail: "planner response failed the action or privacy guard",
+        metrics: {
+          issues: issues.length,
+          tripwire_detections: planFindings.length,
+          vault_leaks: planVaultLeaks.length,
+        },
+      });
+      const reasons = issues.map((i) => `plan guard (step ${i.step}): ${i.problem}`);
+      reasons.push(...planFindings.map((finding) => `response tripwire: ${finding.cls} detected`));
+      reasons.push(...planVaultLeaks.map((token) => `response vault: value behind ${token} appears in plan`));
+      throw new EgressBlocked(reasons);
+    }
+    await this.audit({
+      stage: "response",
+      outcome: "pass",
+      packet_id: packet.packet_id,
+      detail: "planner response validated and guarded",
+      metrics: { steps: plan.steps.length },
+    });
     return plan;
   }
 }
