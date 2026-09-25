@@ -6,7 +6,11 @@ import {
   type ActionPlan,
 } from "@kavach/core/schema";
 import { heuristicPlan } from "./planner/heuristic.js";
-import { ollamaConfigFromEnv, ollamaPlan } from "./planner/ollama.js";
+import {
+  plannerConfigFromEnv,
+  plannerPlan,
+  shouldUseConfiguredPlanner,
+} from "./planner/remote.js";
 import { rescanPacket } from "./rescan.js";
 
 /**
@@ -15,7 +19,7 @@ import { rescanPacket } from "./rescan.js";
  *   POST /plan    Sanitized Context Packet in, Action Plan out.
  *
  * Pipeline: schema validation -> PII re-scan (reject, do not process) ->
- * planner (Ollama when configured, deterministic heuristic otherwise) ->
+ * deterministic planner (configured model only for ambiguous tasks) ->
  * output guard -> respond. The server guards its own output so a broken
  * planner can never emit a plan the client would have to distrust.
  */
@@ -71,14 +75,16 @@ export interface ServerOptions {
 export function makeServer(options: ServerOptions = {}): Server {
   const env = options.env ?? process.env;
   const log = options.log ?? ((line: string) => console.log(line));
-  const ollama = ollamaConfigFromEnv(env);
+  const configuredPlanner = plannerConfigFromEnv(env);
 
   return createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
         json(res, 200, {
           ok: true,
-          planner: ollama ? `ollama:${ollama.model}` : "heuristic",
+          planner: configuredPlanner
+            ? `configured:${configuredPlanner.mode}`
+            : "heuristic",
         });
         return;
       }
@@ -113,7 +119,7 @@ export function makeServer(options: ServerOptions = {}): Server {
           elements: packet.elements.length,
           redactions: packet.visual.regions_redacted,
           visual: packet.visual.present,
-          planner: ollama ? "ollama" : "heuristic",
+          planner: configuredPlanner ? `configured:${configuredPlanner.mode}` : "heuristic",
         });
 
         // Defence in depth: a packet carrying raw PII is a broken client.
@@ -132,20 +138,24 @@ export function makeServer(options: ServerOptions = {}): Server {
           return;
         }
 
-        let plan: ActionPlan;
-        if (ollama) {
+        const deterministicPlan = heuristicPlan(packet);
+        let plan: ActionPlan = deterministicPlan;
+        let plannerUsed: "heuristic" | "configured" = "heuristic";
+        if (
+          configuredPlanner &&
+          shouldUseConfiguredPlanner(packet, deterministicPlan, configuredPlanner)
+        ) {
           try {
-            plan = await ollamaPlan(packet, ollama);
+            plan = await plannerPlan(packet, configuredPlanner);
+            plannerUsed = "configured";
           } catch (e) {
             auditLog(log, "planner_fallback", {
               packet_key: packetLogKey(packet.packet_id),
-              reason: "ollama_failed",
+              reason: "configured_planner_failed",
               error: e instanceof Error ? e.name : "unknown",
             });
-            plan = heuristicPlan(packet);
+            plan = deterministicPlan;
           }
-        } else {
-          plan = heuristicPlan(packet);
         }
 
         // The server guards its own output before it leaves.
@@ -165,6 +175,7 @@ export function makeServer(options: ServerOptions = {}): Server {
           steps: plan.steps.length,
           confidence: plan.confidence,
           needs_more_context: plan.needs_more_context,
+          planner_used: plannerUsed,
         });
         json(res, 200, plan);
         return;

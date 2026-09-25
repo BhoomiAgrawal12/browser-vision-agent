@@ -344,6 +344,14 @@ control.
   server logs, and privacy receipts.
 - [x] Require typed `ActionPlan` output with closed verbs, packet-bound targets,
   placeholder ownership, confirmation gates, and deterministic fallback plans.
+- [x] Expose one provider-neutral planner contract with generic endpoint, model,
+  mode, timeout, temperature, and optional API-key configuration.
+- [x] Keep planner credentials in ignored local configuration loaded only by the
+  local server startup path.
+- [x] Keep the deterministic heuristic/state-machine planner as the default for
+  common forms and allow configured model use only by explicit mode or ambiguity.
+- [x] Add `npm run dev` to build the extension and start the loopback planner
+  using optional `.env.local` configuration.
 - [x] Clear the in-memory vault and stop active work when a tab changes,
   navigates, or closes.
 - [x] Add the security status checklist, activity audit trail, privacy receipts,
@@ -354,19 +362,12 @@ control.
 #### Current Tasks
 
 - [ ] Verify the complete Tier 0 loop in supported Chrome and Firefox builds.
-- [ ] Make the planner backend provider-neutral through one `PlannerBackend`
-  contract and generic endpoint/model configuration; no provider-specific
-  names or credentials belong in project source.
-- [ ] Load planner credentials only from ignored local configuration or runtime
-  environment variables; never commit keys, endpoints, or test credentials.
-- [ ] Keep the deterministic heuristic/state-machine planner as the default
-  path for common forms; use a model only for ambiguous intent or structure,
-  and treat its output as an untrusted suggestion.
 - [ ] Complete the user flow for routine form filling: request missing private
   values locally, fill safe fields automatically, re-perceive after changes,
   and require explicit approval before submission or other risky actions.
-- [ ] Provide a one-command local startup path so users do not manually launch
-  each development service or load internal plumbing.
+- [ ] Run configured-planner end-to-end testing with local credentials and
+  confirm `packet_received`, `planner_fallback`, and `plan_sent.planner_used`
+  logs without exposing endpoint or credential details.
 - [ ] Keep end-to-end fixtures synthetic and document clearly that any remote
   test endpoint is not a local model and must not receive real user data.
 

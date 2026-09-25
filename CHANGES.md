@@ -4,6 +4,15 @@ This file records concise summaries of project work. Add new entries at the top 
 
 ## 2026-09-25
 
+### Provider-Neutral Planner Runtime
+
+- Replaced the provider-specific planner wiring with a generic configured endpoint contract and strict JSON `ActionPlan` parsing.
+- Kept deterministic heuristic planning as the default, with explicit `heuristic`, `auto`, and `model` modes and safe fallback logging.
+- Added `npm run dev` and ignored `.env.local` loading for local server startup without committing credentials.
+- Added `planner_used` to safe `plan_sent` logs so configured end-to-end runs can be inspected without identifying the backend.
+
+## 2026-09-25
+
 ### Reform Phase 0 Scope Update
 
 - Split `Reform.md` Phase 0 into completed safeguards and remaining product tasks.
