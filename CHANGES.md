@@ -12,6 +12,7 @@ This file records concise summaries of project work. Add new entries at the top 
 - Added `planner_used` to safe `plan_sent` logs so configured end-to-end runs can be inspected without identifying the backend.
 - Updated startup status output to report only generic planner mode, never endpoint or provider details.
 - Configured planner responses that fail the action guard now fall back to the deterministic plan instead of stalling the task.
+- Included the sanitized packet identifier in configured planner requests so returned plans can pass packet binding.
 
 ## 2026-09-25
 

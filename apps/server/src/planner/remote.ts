@@ -130,6 +130,7 @@ export async function plannerPlan(
       {
         role: "user",
         content: JSON.stringify({
+          packet_id: packet.packet_id,
           task: packet.task,
           origin: packet.origin,
           elements: packet.elements,
