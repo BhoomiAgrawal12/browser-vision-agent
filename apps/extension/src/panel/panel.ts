@@ -12,14 +12,18 @@ import {
   type TaskHistoryStep,
 } from "@kavach/core/schema";
 import { Vault } from "@kavach/core/vault";
+import type { RawRegion } from "@kavach/core/policy";
 import { cssToImage, type CoordinateSpace } from "@kavach/core/fusion";
 import {
   SelfCheckFailed,
   buildSanitizedVisual,
   captureVisibleTab,
+  type CaptureFrame,
   type SanitizedVisual,
 } from "@kavach/perception/browser";
 import { diffTiles, hashTiles, type RedactionRect } from "@kavach/perception";
+import { detectFaces, type FaceModel } from "@kavach/perception/vision";
+import { createOrtFaceModel, type OrtNamespace } from "@kavach/perception/vision/ort";
 import {
   sendToTab,
   type ExecuteResponse,
@@ -181,17 +185,98 @@ function buildPacket(
   };
 }
 
-/* The visual pipeline: capture, dirty-tile reuse, compose, self-check. */
+/* On-device face detection: the model loads once, lazily, from the
+   extension's own bundled assets. No model, no crash: the pipeline
+   degrades to structural perception and fail-closed media masking. */
+
+let faceModelPromise: Promise<FaceModel | null> | null = null;
+
+function faceModel(): Promise<FaceModel | null> {
+  if (!faceModelPromise) {
+    faceModelPromise = (async () => {
+      const ortNs = (globalThis as Record<string, unknown>)["ort"] as
+        | OrtNamespace
+        | undefined;
+      if (!ortNs) {
+        log("onnxruntime not loaded; face detection off", "dim");
+        return null;
+      }
+      try {
+        const model = await createOrtFaceModel(ortNs, "models/ultraface-rfb-320.onnx", {
+          wasmPaths: "ort/",
+          executionProviders: ["webgpu", "wasm"],
+        });
+        log("face detector ready (ultraface-rfb-320, on-device)", "dim");
+        return model;
+      } catch (e) {
+        log(`face detector unavailable: ${(e as Error).message}`, "dim");
+        return null;
+      }
+    })();
+  }
+  return faceModelPromise;
+}
+
+/** Capture once per iteration; null when capture is not possible. */
+async function tryCapture(): Promise<CaptureFrame | null> {
+  try {
+    return await captureVisibleTab();
+  } catch (e) {
+    log(`  capture unavailable (${(e as Error).message}); structure only`, "dim");
+    return null;
+  }
+}
+
+/**
+ * Run the on-device face detector over the captured frame and express
+ * each hit as a raw region in CSS space, so the policy engine mints
+ * PII:FACE tokens and the composer destroys those pixels like any other
+ * redaction. Ids continue after the content script's sequence.
+ */
+async function detectFaceRegions(
+  frame: CaptureFrame,
+  perception: PerceiveResponse,
+): Promise<RawRegion[]> {
+  const model = await faceModel();
+  if (!model) return [];
+  const started = performance.now();
+  const faces = await detectFaces(frame.image, model);
+  const elapsed = Math.round(performance.now() - started);
+  if (faces.length > 0) {
+    log(`  ${faces.length} face(s) detected on-device in ${elapsed} ms`, "ok");
+  } else {
+    log(`  face pass clean in ${elapsed} ms`, "dim");
+  }
+  const cssFactor = perception.meta.viewport.dpr * frame.scale;
+  return faces.map((face, i) => ({
+    id: `e${perception.regions.length + i + 1}`,
+    role: "image" as const,
+    label: null,
+    box: [
+      face.box[0] / cssFactor,
+      face.box[1] / cssFactor,
+      face.box[2] / cssFactor,
+      face.box[3] / cssFactor,
+    ] as RawRegion["box"],
+    source: "vision" as const,
+    confidence: face.score,
+    evidence: ["visual:face-detector"],
+    explained: false,
+    visualClass: "FACE" as const,
+  }));
+}
+
+/* The visual pipeline: dirty-tile reuse, compose, self-check. */
 
 let lastTiles: Uint32Array | null = null;
 let lastVisual: SanitizedVisual | null = null;
 
 async function buildVisual(
+  frame: CaptureFrame,
   perception: PerceiveResponse,
   sanitized: ReturnType<PolicyEngine["sanitize"]>,
 ): Promise<SanitizedVisual | null> {
   try {
-    const frame = await captureVisibleTab();
     const tiles = hashTiles(frame.image);
     const diff = diffTiles(lastTiles, tiles);
     lastTiles = tiles;
@@ -239,7 +324,7 @@ async function buildVisual(
       log(`  ${e.message} Sending structure only.`, "err");
       return null;
     }
-    log(`  capture unavailable (${(e as Error).message}); structure only`, "dim");
+    log(`  visual pipeline failed (${(e as Error).message}); structure only`, "dim");
     return null;
   }
 }
@@ -317,7 +402,17 @@ async function runTask(): Promise<void> {
       if (!perception.ok) throw new Error("perception failed");
       log(`  ${perception.regions.length} regions from structure`);
 
-      const sanitized = policy.sanitize(perception.regions, mode, intent);
+      // Capture before sanitization so the on-device face pass can add
+      // regions the DOM knows nothing about; the same frame then feeds
+      // the composer, so what was scanned is exactly what is redacted.
+      const frame = mode === "wireframe" ? null : await tryCapture();
+      const faceRegions = frame ? await detectFaceRegions(frame, perception) : [];
+
+      const sanitized = policy.sanitize(
+        [...perception.regions, ...faceRegions],
+        mode,
+        intent,
+      );
       stats.redacted += sanitized.summary.regionsRedacted;
       renderStats();
       log(
@@ -325,7 +420,7 @@ async function runTask(): Promise<void> {
           `${sanitized.summary.unexplainedMasked} unexplained masked`,
       );
 
-      const visual = mode === "wireframe" ? null : await buildVisual(perception, sanitized);
+      const visual = frame ? await buildVisual(frame, perception, sanitized) : null;
       const packet = buildPacket(perception, sanitized, mode, history, visual);
 
       const preview = $<HTMLImageElement>("visual-preview");
