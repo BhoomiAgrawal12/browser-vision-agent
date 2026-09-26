@@ -8,14 +8,17 @@
     ".": "./src/index.ts",
     "./compose": "./src/compose.ts",
     "./tiles": "./src/tiles.ts",
-    "./browser": "./src/browser.ts"
+    "./browser": "./src/browser.ts",
+    "./vision": "./src/vision/ultraface.ts",
+    "./vision/ort": "./src/vision/ort-model.ts"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kavach/core": "*"
+    "@kavach/core": "*",
+    "onnxruntime-web": "^1.20.1"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.280",
