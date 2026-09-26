@@ -114,6 +114,16 @@ button.danger { background: var(--bad); }
   word-break: break-word;
 }
 
+.section-head { display: flex; justify-content: space-between; align-items: baseline; }
+button.small {
+  padding: 3px 9px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+button.small:not(:disabled):hover { color: var(--ink); }
+
 .receipts { display: flex; flex-direction: column; gap: 6px; }
 .receipt {
   background: var(--panel);

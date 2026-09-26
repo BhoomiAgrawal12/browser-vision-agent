@@ -59,6 +59,26 @@ function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+/** Full receipt history for audit export. Tokens and hashes only. */
+const receiptHistory: PrivacyReceipt[] = [];
+
+function exportReceipts(): void {
+  const payload = {
+    exported_at: new Date().toISOString(),
+    policy_version: POLICY_VERSION,
+    receipts: receiptHistory,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `kavach-receipts-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const stats = { redacted: 0, sent: 0, bytes: 0 };
 function renderStats(): void {
   $("stat-blocked").textContent = String(stats.redacted);
@@ -126,6 +146,8 @@ const gate = new EgressGate({
   vault,
   receipts: {
     append: (r) => {
+      receiptHistory.push(r);
+      $<HTMLButtonElement>("export-receipts").disabled = false;
       renderReceipt(r);
       if (r.outcome === "sent") {
         stats.sent += 1;
@@ -522,6 +544,7 @@ async function runTask(): Promise<void> {
 }
 
 runBtn.addEventListener("click", () => void runTask());
+$<HTMLButtonElement>("export-receipts").addEventListener("click", exportReceipts);
 stopBtn.addEventListener("click", () => {
   stopRequested = true;
 });
