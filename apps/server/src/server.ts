@@ -148,10 +148,13 @@ export function makeServer(options: ServerOptions = {}): Server {
           try {
             const configuredPlan = await plannerPlan(packet, configuredPlanner);
             const configuredIssues = guardPlanAgainstPacket(configuredPlan, packet);
-            if (configuredIssues.length > 0) {
+            const configuredPlanEmpty = configuredPlan.steps.length === 0 && deterministicPlan.steps.length > 0;
+            if (configuredIssues.length > 0 || configuredPlanEmpty) {
               auditLog(log, "planner_fallback", {
                 packet_key: packetLogKey(packet.packet_id),
-                reason: "configured_plan_failed_action_guard",
+                reason: configuredPlanEmpty
+                  ? "configured_plan_empty"
+                  : "configured_plan_failed_action_guard",
                 issues: configuredIssues.length,
                 issue_steps: configuredIssues.slice(0, 4).map((issue) => `${issue.step}:${issue.problem}`),
               });
@@ -184,6 +187,7 @@ export function makeServer(options: ServerOptions = {}): Server {
         auditLog(log, "plan_sent", {
           packet_key: packetLogKey(packet.packet_id),
           steps: plan.steps.length,
+          actions: plan.steps.map((step) => `${step.action}:${step.target_element_id ?? "-"}`),
           confidence: plan.confidence,
           needs_more_context: plan.needs_more_context,
           planner_used: plannerUsed,

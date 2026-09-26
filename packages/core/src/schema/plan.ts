@@ -126,6 +126,7 @@ export function guardPlanAgainstPacket(
   const ids = new Map(packet.elements.map((e) => [e.id, e]));
   const placeholderOwners = new Map<string, string>();
   const unavailableTokens = new Set<string>();
+  const promptedTargets = new Set<string>();
   for (const element of packet.elements) {
     const value = element.value;
     if (value?.kind === "placeholder") {
@@ -157,6 +158,31 @@ export function guardPlanAgainstPacket(
           step: i,
           problem: `cannot type into role "${el.role}"`,
         });
+      }
+      if (
+        step.action === "type" &&
+        el.state?.invalid !== true &&
+        (el.state?.filled === true || el.value?.kind === "placeholder" || el.value?.kind === "filled")
+      ) {
+        issues.push({
+          step: i,
+          problem: `element ${step.target_element_id} already contains a value`,
+        });
+      }
+      if (step.action === "type" && el.state?.invalid === true && step.value?.kind !== "user_prompt") {
+        issues.push({
+          step: i,
+          problem: `element ${step.target_element_id} is invalid and requires fresh user input`,
+        });
+      }
+      if (step.action === "type" && step.value?.kind === "user_prompt") {
+        if (promptedTargets.has(step.target_element_id)) {
+          issues.push({
+            step: i,
+            problem: `element ${step.target_element_id} was already prompted in this plan`,
+          });
+        }
+        promptedTargets.add(step.target_element_id);
       }
     }
     // The server may never ask the client to reveal a value: placeholder

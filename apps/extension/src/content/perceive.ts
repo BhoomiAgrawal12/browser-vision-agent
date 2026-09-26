@@ -168,7 +168,7 @@ const INTERACTIVE: ReadonlySet<ElementRole> = new Set([
 
 /* Label derivation: accessibility name, roughly in spec priority order. */
 
-function labelOf(el: Element): string | null {
+export function labelOf(el: Element): string | null {
   const aria = el.getAttribute("aria-label");
   if (aria?.trim()) return aria.trim();
 
@@ -201,6 +201,22 @@ function labelOf(el: Element): string | null {
     if (el.value.trim()) return el.value.trim();
   }
   return null;
+}
+
+function validationMessageOf(el: Element): string | undefined {
+  const control =
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement
+      ? el
+      : null;
+  const native = control?.validationMessage.trim();
+  if (native) return native;
+  const errorId = el.getAttribute("aria-errormessage");
+  const errorText = errorId
+    ? el.ownerDocument.getElementById(errorId)?.textContent?.trim().replace(/\s+/g, " ")
+    : undefined;
+  return errorText || undefined;
 }
 
 function isVisible(el: Element): boolean {
@@ -333,7 +349,12 @@ export function perceive(doc: Document): Snapshot {
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
           state.readonly = el.readOnly;
         }
-        if (el.matches(":invalid") && el.value.length > 0) state.invalid = true;
+        if (
+          (el.matches(":invalid") || el.getAttribute("aria-invalid") === "true") &&
+          el.value.length > 0
+        ) {
+          state.invalid = true;
+        }
       } else if (el instanceof HTMLButtonElement) {
         state.disabled = el.disabled;
       } else if (el.getAttribute("aria-disabled") === "true") {
@@ -343,6 +364,7 @@ export function perceive(doc: Document): Snapshot {
 
       const cls = structuralClass(el, label);
       const risk = riskOf(el, role, label);
+      const validationMessage = validationMessageOf(el);
       const region: Omit<RawRegion, "id"> = {
         role,
         label,
@@ -358,6 +380,7 @@ export function perceive(doc: Document): Snapshot {
       };
       if (rawValue !== undefined) region.rawValue = rawValue;
       if (cls) region.structuralClass = cls;
+      if (validationMessage) region.validationMessage = validationMessage;
       if (risk) region.risk = risk;
       push(el, region);
     } else if (media) {

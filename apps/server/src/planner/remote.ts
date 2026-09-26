@@ -89,7 +89,12 @@ function buildSystemPrompt(packet: SanitizedContextPacket): string {
     ),
     "Rules: target only element ids that exist in the packet. Never output",
     "coordinates. Any step touching an element with a risk field must set",
-    "requires_confirmation true. Never invent private values.",
+    "requires_confirmation true. Never invent private values. A field whose",
+    "state.filled is true or whose value kind is placeholder/filled already",
+    "contains a valid user value: do not ask for it again or overwrite it unless the",
+    "task explicitly requests replacement. Ask at most once per target in one",
+    "plan. If state.invalid is true, ask the user to correct that same field",
+    "before moving on, and put navigation or submit clicks after data-entry steps.",
   ].join("\n");
 }
 

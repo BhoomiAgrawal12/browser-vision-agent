@@ -2,6 +2,16 @@
 
 This file records concise summaries of project work. Add new entries at the top of the log.
 
+## 2026-09-26
+
+### Manual Form Progress And Validation
+
+- Added client-only process memory for user answers across same-origin multi-page form steps, with wipe boundaries for tab, origin, extension, and explicit stop.
+- Made re-grounding reuse the same accessible-label resolver as perception so native form inputs do not falsely fail execution.
+- Added local native/ARIA validation detection and field-specific corrective prompts without sending browser validation text to the planner.
+- Prevented planner actions from overwriting valid filled fields, added no-progress protection, and added local completion counts for filled, required-empty, invalid, and optional fields.
+- Added safe action summaries to `plan_sent` logs for manual debugging without logging labels or values.
+
 ## 2026-09-25
 
 ### Provider-Neutral Planner Runtime

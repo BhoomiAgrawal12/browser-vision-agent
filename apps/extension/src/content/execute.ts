@@ -1,5 +1,5 @@
 import type { ExecuteResponse, Grounding, ResolvedStep } from "../shared/messages.js";
-import { roleOf } from "./perceive.js";
+import { labelOf, roleOf } from "./perceive.js";
 
 /**
  * The hands, with the re-grounding check in front of them. Between capture
@@ -26,10 +26,7 @@ export function reground(el: Element | undefined, grounding: Grounding): string 
     return "element size changed since capture";
   }
   if (grounding.label) {
-    const current =
-      el.getAttribute("aria-label")?.trim() ||
-      el.textContent?.trim().replace(/\s+/g, " ").slice(0, 300) ||
-      null;
+    const current = labelOf(el);
     // Labels are compared loosely: dynamic counters ("Inbox (3)") shift.
     if (!current || (!current.includes(grounding.label.slice(0, 40)) && !grounding.label.includes(current.slice(0, 40)))) {
       return "element label changed since capture";
