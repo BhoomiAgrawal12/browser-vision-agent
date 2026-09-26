@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executeStep, reground } from "./execute.js";
+import { perceive } from "./perceive.js";
 import { installDom, setRect } from "./test-dom.js";
 import type { Grounding } from "../shared/messages.js";
 import type { Window } from "happy-dom";
@@ -38,6 +39,30 @@ describe("browser execution boundaries", () => {
     button.textContent = "Submit application";
     setRect(button, { x: 100, y: 20, width: 180, height: 30 });
     expect(reground(browserButton, grounding)).toContain("moved");
+  });
+
+  it("re-grounds a label-for input with the same accessible label used at capture", () => {
+    const { document } = dom;
+    document.body.innerHTML = `
+      <label for="pincode">PIN Code *</label>
+      <input id="pincode" required>
+    `;
+    const input = document.querySelector("#pincode")!;
+    setRect(input);
+
+    const snapshot = perceive(document as unknown as Document);
+    const region = snapshot.regions.find((candidate) => candidate.label === "PIN Code *");
+    expect(region).toBeDefined();
+    const grounding: Grounding = {
+      id: region!.id,
+      role: region!.role,
+      label: region!.label,
+      box: region!.box,
+      ...(region!.state?.disabled !== undefined ? { disabled: region!.state.disabled } : {}),
+      ...(region!.state?.readonly !== undefined ? { readonly: region!.state.readonly } : {}),
+    };
+
+    expect(reground(snapshot.elements.get(region!.id), grounding)).toBeNull();
   });
 
   it("does not type into disabled or readonly controls and dispatches normal input events", async () => {

@@ -34,7 +34,7 @@ export const StepValue = z.discriminatedUnion("kind", [
     kind: z.literal("user_prompt"),
     prompt_text: z.string().max(300),
   }),
-  /** Reuse a value the client already holds, by token. Client policy decides consent. */
+  /** Reuse a value the client already holds; the guard binds it to its owner. */
   z.object({
     kind: z.literal("placeholder"),
     token: PlaceholderToken,

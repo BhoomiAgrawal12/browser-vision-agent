@@ -33,12 +33,16 @@ tools/               build utilities
 
 ## Running the Tier 0 demo
 
-Tier 0 is the structure-only loop: no vision models yet, everything works from
-the DOM and accessibility data, PII is caught by validators and checksums.
+Tier 0 is the structure-only fallback: the DOM and accessibility data drive
+the form loop, and PII is caught by validators and checksums. Shield and
+Fortress also run the bundled UltraFace face detector locally through
+ONNX Runtime Web, preferring WebGPU and falling back to WASM; Wireframe sends
+zero pixels. If capture or model assets are unavailable, the structure-only
+path remains available and unexplained media stays masked.
 
 ```
 npm install
-npm test                      # 127 tests incl. the end-to-end loop
+npm test                      # workspace tests incl. the end-to-end loop
 node bench/demo/serve.mjs     # demo form at http://127.0.0.1:8080
 npm run dev -w @kavach/server # planner at http://127.0.0.1:8787
 npm run build -w @kavach/extension
@@ -53,12 +57,15 @@ Then load the extension:
   pick `apps/extension/dist/firefox/manifest.json`. Open the Kavach sidebar.
 
 Open the demo form, type "Help me complete this form" in the panel, press Run.
-Watch the "What the server sees" pane: the Aadhaar, email, phone and face are
-typed placeholders; the 12 digit application reference survives untouched
-because it fails the Verhoeff checksum. Every request produces a receipt.
+Watch the "What the server sees" pane: Aadhaar, email, and phone become typed
+placeholders, while detected faces are represented as redacted visual regions;
+the 12 digit application reference survives untouched because it fails the
+Verhoeff checksum. Every request produces a receipt.
 
-To use a model instead of the deterministic planner, run Ollama and start the
-server with `OLLAMA_URL=http://127.0.0.1:11434 npm run dev -w @kavach/server`.
+To use a configured planner instead of the deterministic fallback, copy
+`.env.example` to `.env`, set `PLANNER_ENDPOINT`, `PLANNER_MODEL`, and the
+optional `PLANNER_API_KEY`, then run `npm run dev`. The endpoint receives only
+sanitized packets; it is not a substitute for the local vision pass.
 
 ## The single-door rule
 
