@@ -43,6 +43,8 @@ export interface RawRegion {
   structuralClass?: PiiClass;
   /** Class asserted by vision: FACE, QR_BARCODE, ID_DOCUMENT, SIGNATURE. */
   visualClass?: PiiClass;
+  /** Browser-local validation feedback; never copied into a sanitized packet. */
+  validationMessage?: string;
   risk?: "state_changing" | "navigation" | "destructive";
 }
 

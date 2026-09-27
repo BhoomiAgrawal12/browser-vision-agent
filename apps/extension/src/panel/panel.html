@@ -7,15 +7,24 @@
   <link rel="stylesheet" href="panel.css">
 </head>
 <body>
-  <header>
-    <h1>Kavach</h1>
-    <span class="tagline">local eye &middot; remote brain &middot; unbreakable filter</span>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">K</span>
+      <div>
+        <h1>Kavach</h1>
+        <p class="tagline">Private browsing assistant</p>
+      </div>
+    </div>
+    <span class="local-badge"><span class="status-dot" aria-hidden="true"></span>Local first</span>
   </header>
 
   <section class="controls">
-    <label for="task">What should the agent do?</label>
-    <textarea id="task" rows="2" placeholder="e.g. Help me complete this form"></textarea>
-    <div class="row">
+    <div class="section-intro">
+      <label for="task">What would you like help with?</label>
+      <span class="privacy-note">You stay in control</span>
+    </div>
+    <textarea id="task" rows="3" placeholder="e.g. Help me complete this form"></textarea>
+    <div class="control-row">
       <select id="mode" title="Privacy mode">
         <option value="shield" selected>Shield</option>
         <option value="fortress">Fortress</option>
@@ -27,10 +36,20 @@
   </section>
 
   <section class="meter">
-    <div class="stat"><span id="stat-blocked">0</span><label>values redacted</label></div>
+    <div class="stat"><span id="stat-blocked">0</span><label>redactions</label></div>
     <div class="stat"><span id="stat-sent">0</span><label>requests sent</label></div>
     <div class="stat"><span id="stat-bytes">0</span><label>bytes out</label></div>
-    <div class="stat"><span id="stat-leaks">0</span><label>raw PII leaked</label></div>
+    <div class="stat"><span id="stat-leaks">0</span><label>raw PII egress</label></div>
+  </section>
+
+  <section class="security-status">
+    <h2>Security status</h2>
+    <div class="checks">
+      <div class="check ok" id="check-local"><span>PRIVATE</span> Perception stays in this browser</div>
+      <div class="check ok" id="check-vault"><span>SESSION</span> The vault is cleared with this tab</div>
+      <div class="check ok" id="check-gate"><span>PROTECTED</span> Every outbound packet is checked</div>
+      <div class="check ok" id="check-receipts"><span>TRACEABLE</span> Sends leave a privacy receipt</div>
+    </div>
   </section>
 
   <section class="log-section">
@@ -39,7 +58,7 @@
   </section>
 
   <section class="server-view">
-    <h2>What the server sees <span class="hint">(the entire outbound payload)</span></h2>
+    <h2>Shared with the planner <span class="hint">sanitized only</span></h2>
     <img id="visual-preview" alt="the exact redacted frame sent to the server" hidden>
     <pre id="packet-view">nothing sent yet</pre>
   </section>

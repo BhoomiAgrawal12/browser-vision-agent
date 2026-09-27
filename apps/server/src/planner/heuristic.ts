@@ -34,6 +34,10 @@ function isEmptyRequired(el: SceneElement): boolean {
   );
 }
 
+function isInvalidField(el: SceneElement): boolean {
+  return isFillableRole(el) && el.state?.invalid === true && el.state?.disabled !== true;
+}
+
 function isActionButton(el: SceneElement): boolean {
   return (
     el.role === "button" &&
@@ -47,6 +51,28 @@ const MAX_FILL_STEPS = 5;
 
 export function heuristicPlan(packet: SanitizedContextPacket): ActionPlan {
   const steps: PlanStep[] = [];
+  const invalids = packet.elements.filter(isInvalidField).slice(0, MAX_FILL_STEPS);
+  if (invalids.length > 0) {
+    for (const el of invalids) {
+      steps.push({
+        action: "type",
+        target_element_id: el.id,
+        value: {
+          kind: "user_prompt",
+          prompt_text: `Please correct: ${el.label ?? "the highlighted field"}`,
+        },
+        requires_confirmation: false,
+      });
+    }
+    return {
+      schema: PLAN_SCHEMA_ID,
+      packet_id: packet.packet_id,
+      reasoning_summary: `${invalids.length} field(s) contain values rejected by the form and need correction.`,
+      steps,
+      needs_more_context: false,
+      confidence: 0.8,
+    };
+  }
   const empties = packet.elements.filter(isEmptyRequired).slice(0, MAX_FILL_STEPS);
 
   if (empties.length > 0) {

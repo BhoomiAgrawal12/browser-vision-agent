@@ -28,6 +28,16 @@ async function post(body: unknown): Promise<{ status: number; json: unknown }> {
   return { status: res.status, json: await res.json() };
 }
 
+function hasLogEvent(event: string): boolean {
+  return logs.some((line) => {
+    try {
+      return (JSON.parse(line) as { event?: string }).event === event;
+    } catch {
+      return false;
+    }
+  });
+}
+
 describe("planner service", () => {
   it("reports health with the active planner", async () => {
     const res = await fetch(`${base}/health`);
@@ -45,6 +55,8 @@ describe("planner service", () => {
       target_element_id: "e15",
       value: { kind: "user_prompt" },
     });
+    expect(hasLogEvent("packet_received")).toBe(true);
+    expect(hasLogEvent("plan_sent")).toBe(true);
   });
 
   it("rejects invalid JSON", async () => {
@@ -58,6 +70,7 @@ describe("planner service", () => {
     const { status, json } = await post(bad);
     expect(status).toBe(422);
     expect((json as { error: string }).error).toContain("schema");
+    expect(hasLogEvent("packet_rejected")).toBe(true);
   });
 
   it("rejects a packet whose sanitization leaked raw PII, and logs it", async () => {
@@ -66,7 +79,17 @@ describe("planner service", () => {
     const { status, json } = await post(leaky);
     expect(status).toBe(422);
     expect((json as { classes: string[] }).classes).toContain("EMAIL");
-    expect(logs.join()).toContain("REJECTED");
+    expect(hasLogEvent("packet_rejected")).toBe(true);
+    expect(logs.join()).not.toContain("ramesh@gmail.com");
+  });
+
+  it("hashes client packet ids before writing them to logs", async () => {
+    const packet = fixturePacket();
+    packet.packet_id = "ramesh@gmail.com.packet";
+    const { status } = await post(packet);
+    expect(status).toBe(422);
+    expect(logs.join()).not.toContain("ramesh@gmail.com.packet");
+    expect(logs.some((line) => line.includes('"packet_key":"pkt_'))).toBe(true);
   });
 
   it("404s elsewhere", async () => {

@@ -170,4 +170,21 @@ describe("ActionPlan schema and guard", () => {
     const issues = guardPlanAgainstPacket(plan, fixturePacket());
     expect(issues.some((i) => i.problem.includes("placeholder values"))).toBe(true);
   });
+
+  it("guard binds a placeholder to the element that owns it", () => {
+    const plan = ActionPlan.parse(validPlan());
+    plan.steps[0]!.value = { kind: "placeholder", token: "PII:AADHAAR#1" };
+    const issues = guardPlanAgainstPacket(plan, fixturePacket());
+    expect(issues.some((i) => i.problem.includes("belongs to element e14"))).toBe(true);
+  });
+
+  it("guard rejects guessed, missing, and non-recoverable placeholders", () => {
+    const missing = ActionPlan.parse(validPlan());
+    missing.steps[0]!.value = { kind: "placeholder", token: "PII:AADHAAR#99" };
+    expect(guardPlanAgainstPacket(missing, fixturePacket()).some((i) => i.problem.includes("not present"))).toBe(true);
+
+    const unavailable = ActionPlan.parse(validPlan());
+    unavailable.steps[0]!.value = { kind: "placeholder", token: "PII:FACE#1" };
+    expect(guardPlanAgainstPacket(unavailable, fixturePacket()).some((i) => i.problem.includes("not recoverable"))).toBe(true);
+  });
 });

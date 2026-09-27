@@ -85,7 +85,7 @@ function structuralClass(el: Element, label: string | null): PiiClass | undefine
 
 /* Role mapping. */
 
-function roleOf(el: Element): ElementRole {
+export function roleOf(el: Element): ElementRole {
   const aria = el.getAttribute("role");
   const tag = el.tagName.toLowerCase();
   if (el instanceof HTMLInputElement) {
@@ -168,7 +168,7 @@ const INTERACTIVE: ReadonlySet<ElementRole> = new Set([
 
 /* Label derivation: accessibility name, roughly in spec priority order. */
 
-function labelOf(el: Element): string | null {
+export function labelOf(el: Element): string | null {
   const aria = el.getAttribute("aria-label");
   if (aria?.trim()) return aria.trim();
 
@@ -203,13 +203,42 @@ function labelOf(el: Element): string | null {
   return null;
 }
 
+function validationMessageOf(el: Element): string | undefined {
+  const control =
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement
+      ? el
+      : null;
+  const native = control?.validationMessage.trim();
+  if (native) return native;
+  const errorId = el.getAttribute("aria-errormessage");
+  const errorText = errorId
+    ? el.ownerDocument.getElementById(errorId)?.textContent?.trim().replace(/\s+/g, " ")
+    : undefined;
+  return errorText || undefined;
+}
+
 function isVisible(el: Element): boolean {
   const rect = el.getBoundingClientRect();
   if (rect.width <= 1 || rect.height <= 1) return false;
   if (rect.bottom < 0 || rect.right < 0) return false;
   if (rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+  let ancestor: Element | null = el;
+  while (ancestor) {
+    if (ancestor.getAttribute("aria-hidden") === "true") return false;
+    const root = ancestor.getRootNode();
+    if ("host" in root && root.host instanceof Element) ancestor = root.host;
+    else ancestor = ancestor.parentElement;
+  }
   const style = getComputedStyle(el);
-  return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0.05;
+  const opacity = Number.parseFloat(style.opacity);
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.visibility !== "collapse" &&
+    (!Number.isFinite(opacity) || opacity > 0.05)
+  );
 }
 
 const RISK_LABEL = /submit|pay|transfer|confirm|delete|remove|apply|proceed|place order|buy|send/i;
@@ -320,7 +349,12 @@ export function perceive(doc: Document): Snapshot {
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
           state.readonly = el.readOnly;
         }
-        if (el.matches(":invalid") && el.value.length > 0) state.invalid = true;
+        if (
+          (el.matches(":invalid") || el.getAttribute("aria-invalid") === "true") &&
+          el.value.length > 0
+        ) {
+          state.invalid = true;
+        }
       } else if (el instanceof HTMLButtonElement) {
         state.disabled = el.disabled;
       } else if (el.getAttribute("aria-disabled") === "true") {
@@ -330,6 +364,7 @@ export function perceive(doc: Document): Snapshot {
 
       const cls = structuralClass(el, label);
       const risk = riskOf(el, role, label);
+      const validationMessage = validationMessageOf(el);
       const region: Omit<RawRegion, "id"> = {
         role,
         label,
@@ -345,20 +380,13 @@ export function perceive(doc: Document): Snapshot {
       };
       if (rawValue !== undefined) region.rawValue = rawValue;
       if (cls) region.structuralClass = cls;
+      if (validationMessage) region.validationMessage = validationMessage;
       if (risk) region.risk = risk;
       push(el, region);
     } else if (media) {
-      // Cross-origin iframes, canvases and images: structure cannot vouch
-      // for their pixels. Tier 0 has no vision channel, so fail closed.
-      const sameOriginFrame =
-        tag === "iframe" &&
-        (() => {
-          try {
-            return (el as HTMLIFrameElement).contentDocument !== null;
-          } catch {
-            return false;
-          }
-        })();
+      // Tier 0 cannot inspect pixels safely. Even same-origin media may carry
+      // sensitive content, so every media box is masked until a vision pass
+      // positively explains it.
       push(el, {
         role,
         label,
@@ -366,8 +394,7 @@ export function perceive(doc: Document): Snapshot {
         source: "vision",
         confidence: 0.5,
         evidence: [`structural:tag=${tag}`],
-        explained: role === "image" && sameOriginLoadedImage(el),
-        ...(sameOriginFrame ? { explained: true } : {}),
+        explained: false,
       });
     } else if (isTextBlock && textBlocks < MAX_TEXT_BLOCKS) {
       const text = directText(el);
@@ -411,14 +438,4 @@ function directText(el: Element): string {
     }
   }
   return out.trim().replace(/\s+/g, " ");
-}
-
-function sameOriginLoadedImage(el: Element): boolean {
-  if (!(el instanceof HTMLImageElement)) return false;
-  try {
-    const url = new URL(el.currentSrc || el.src, location.href);
-    return url.origin === location.origin;
-  } catch {
-    return false;
-  }
 }

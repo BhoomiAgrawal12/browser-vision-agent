@@ -124,6 +124,17 @@ export function guardPlanAgainstPacket(
   }
 
   const ids = new Map(packet.elements.map((e) => [e.id, e]));
+  const placeholderOwners = new Map<string, string>();
+  const unavailableTokens = new Set<string>();
+  const promptedTargets = new Set<string>();
+  for (const element of packet.elements) {
+    const value = element.value;
+    if (value?.kind === "placeholder") {
+      placeholderOwners.set(value.token, element.id);
+    } else if (value?.kind === "redacted" && value.token) {
+      unavailableTokens.add(value.token);
+    }
+  }
 
   for (const [i, step] of plan.steps.entries()) {
     if (step.target_element_id) {
@@ -148,6 +159,31 @@ export function guardPlanAgainstPacket(
           problem: `cannot type into role "${el.role}"`,
         });
       }
+      if (
+        step.action === "type" &&
+        el.state?.invalid !== true &&
+        (el.state?.filled === true || el.value?.kind === "placeholder" || el.value?.kind === "filled")
+      ) {
+        issues.push({
+          step: i,
+          problem: `element ${step.target_element_id} already contains a value`,
+        });
+      }
+      if (step.action === "type" && el.state?.invalid === true && step.value?.kind !== "user_prompt") {
+        issues.push({
+          step: i,
+          problem: `element ${step.target_element_id} is invalid and requires fresh user input`,
+        });
+      }
+      if (step.action === "type" && step.value?.kind === "user_prompt") {
+        if (promptedTargets.has(step.target_element_id)) {
+          issues.push({
+            step: i,
+            problem: `element ${step.target_element_id} was already prompted in this plan`,
+          });
+        }
+        promptedTargets.add(step.target_element_id);
+      }
     }
     // The server may never ask the client to reveal a value: placeholder
     // steps are fills, and only into fields, which the check above enforces.
@@ -156,6 +192,22 @@ export function guardPlanAgainstPacket(
         step: i,
         problem: "placeholder values may only be used with the type action",
       });
+    }
+    if (step.value?.kind === "placeholder") {
+      const owner = placeholderOwners.get(step.value.token);
+      if (!owner) {
+        issues.push({
+          step: i,
+          problem: unavailableTokens.has(step.value.token)
+            ? `placeholder ${step.value.token} is not recoverable`
+            : `placeholder ${step.value.token} is not present in the packet`,
+        });
+      } else if (step.target_element_id !== owner) {
+        issues.push({
+          step: i,
+          problem: `placeholder ${step.value.token} belongs to element ${owner}`,
+        });
+      }
     }
   }
   return issues;

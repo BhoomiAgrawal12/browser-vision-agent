@@ -7,6 +7,7 @@ import {
   EgressBlocked,
   EgressGate,
   EgressRateLimited,
+  type EgressAuditEvent,
   type PrivacyReceipt,
   type Transport,
 } from "./index.js";
@@ -40,6 +41,7 @@ class FakeTransport implements Transport {
 
 let transport: FakeTransport;
 let receipts: PrivacyReceipt[];
+let auditEvents: EgressAuditEvent[];
 let vault: Vault;
 let gate: EgressGate;
 let clock: number;
@@ -47,6 +49,7 @@ let clock: number;
 beforeEach(() => {
   transport = new FakeTransport();
   receipts = [];
+  auditEvents = [];
   vault = new Vault();
   clock = 1_000_000;
   gate = new EgressGate({
@@ -54,6 +57,7 @@ beforeEach(() => {
     registry: defaultRegistry(),
     vault,
     receipts: { append: (r) => void receipts.push(r) },
+    audit: { append: (event) => void auditEvents.push(event) },
     rateLimit: { max: 3, windowMs: 60_000 },
     now: () => clock,
     makeId: () => "rcpt_test",
@@ -72,6 +76,16 @@ describe("EgressGate: happy path", () => {
       verification: { tripwire_passed: true, vault_scan_passed: true },
     });
     expect(receipts[0]!.sent.payload_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(auditEvents.map((event) => `${event.stage}:${event.outcome}`)).toEqual([
+      "schema:pass",
+      "tripwire:pass",
+      "vault:pass",
+      "visual:pass",
+      "size:pass",
+      "receipt:pass",
+      "network:pass",
+      "response:pass",
+    ]);
   });
 });
 
@@ -86,6 +100,8 @@ describe("EgressGate: the tripwire", () => {
       verification: { tripwire_passed: false },
     });
     expect(receipts[0]!.blocked_reasons!.join()).toContain("AADHAAR");
+    expect(auditEvents.some((event) => event.stage === "network" && event.outcome === "blocked")).toBe(true);
+    expect(JSON.stringify(auditEvents)).not.toContain("9999 4105 7058");
   });
 
   it("blocks a packet leaking an email through a label", async () => {
@@ -111,7 +127,17 @@ describe("EgressGate: the tripwire", () => {
     p["cookies"] = "session=abc";
     await expect(gate.send(p)).rejects.toThrow();
     expect(transport.calls).toHaveLength(0);
-    expect(receipts).toHaveLength(0);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      outcome: "blocked",
+      packet_id: "unknown",
+      blocked_reasons: ["schema: packet failed schema validation"],
+    });
+    expect(JSON.stringify(receipts[0])).not.toContain("session=abc");
+    expect(auditEvents[0]).toMatchObject({
+      stage: "schema",
+      outcome: "blocked",
+    });
   });
 });
 
@@ -174,6 +200,12 @@ describe("EgressGate: caps", () => {
     await gate.send(fixturePacket());
     await gate.send(fixturePacket());
     await expect(gate.send(fixturePacket())).rejects.toThrow(EgressRateLimited);
+    expect(receipts).toHaveLength(4);
+    expect(receipts[3]!).toMatchObject({
+      outcome: "blocked",
+      blocked_reasons: ["rate_limit: request window exceeded"],
+    });
+    expect(auditEvents.some((event) => event.stage === "rate_limit" && event.outcome === "blocked")).toBe(true);
     clock += 61_000;
     await expect(gate.send(fixturePacket())).resolves.toBeDefined();
   });
@@ -185,6 +217,10 @@ describe("EgressGate: response guarding", () => {
     bad.steps[0]!.target_element_id = "e999";
     transport.response = bad;
     await expect(gate.send(fixturePacket())).rejects.toThrow(/e999/);
+    expect(auditEvents.at(-1)).toMatchObject({
+      stage: "response",
+      outcome: "blocked",
+    });
   });
 
   it("rejects a plan with an unknown verb at the schema level", async () => {
@@ -206,5 +242,23 @@ describe("EgressGate: response guarding", () => {
   it("rejects a response that is not a plan at all", async () => {
     transport.response = { hello: "world" };
     await expect(gate.send(fixturePacket())).rejects.toThrow();
+  });
+
+  it("rejects raw PII in planner reasoning before the panel can display it", async () => {
+    const bad = goodPlan();
+    bad.reasoning_summary = "Send the result to ramesh@gmail.com";
+    transport.response = bad;
+    await expect(gate.send(fixturePacket())).rejects.toThrow(/response tripwire: EMAIL/);
+    expect(JSON.stringify(auditEvents)).not.toContain("ramesh@gmail.com");
+  });
+
+  it("rejects a vault value echoed by the planner", async () => {
+    const value = "ramesh@example.test";
+    vault.mint("EMAIL", value);
+    const bad = goodPlan();
+    bad.reasoning_summary = `Use ${value}`;
+    transport.response = bad;
+    await expect(gate.send(fixturePacket())).rejects.toThrow(/response vault: value behind PII:EMAIL#1/);
+    expect(JSON.stringify(auditEvents)).not.toContain(value);
   });
 });

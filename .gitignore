@@ -5,6 +5,7 @@ coverage/
 .DS_Store
 .env
 .env.*
+!.env.example
 tools/pdf/mermaid.min.js
 tools/pdf/report.html
 tools/pdf/chrome-profile*/

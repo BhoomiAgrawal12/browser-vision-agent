@@ -64,13 +64,15 @@ export async function captureVisibleTab(windowId?: number): Promise<CaptureFrame
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(bitmap, 0, 0, w, h);
   const imageData = ctx.getImageData(0, 0, w, h);
+  const captureW = bitmap.width;
+  const captureH = bitmap.height;
   bitmap.close();
 
   return {
     image: { width: w, height: h, data: imageData.data },
     scale,
-    captureW: bitmap.width,
-    captureH: bitmap.height,
+    captureW,
+    captureH,
   };
 }
 

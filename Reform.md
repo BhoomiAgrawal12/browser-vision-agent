@@ -330,11 +330,46 @@ The benchmark must distinguish between:
 
 ### Phase 0: Stabilize the existing product
 
-- Make `npm test`, typechecking, and extension builds pass.
-- Verify the complete Tier 0 loop in Chrome and Firefox.
-- Confirm that raw PII never appears in outbound packets.
-- Verify receipts, rate limits, tripwires, vault scans, and re-grounding.
-- Fix all known demo and UI issues before adding new media behavior.
+Phase 0 is the local-first, deterministic browser-agent foundation. The model
+backend is replaceable and never receives raw browser values or direct browser
+control.
+
+#### Completed
+
+- [x] Make `npm test`, typechecking, egress checks, and extension builds pass.
+- [x] Add automated coverage for DOM forms, labels, open shadow roots, hidden
+  content, fail-closed media, action re-grounding, readonly controls, server
+  logs, receipts, rate limits, tripwires, vault scans, and response guards.
+- [x] Confirm that raw PII is blocked from outbound packets, planner responses,
+  server logs, and privacy receipts.
+- [x] Require typed `ActionPlan` output with closed verbs, packet-bound targets,
+  placeholder ownership, confirmation gates, and deterministic fallback plans.
+- [x] Expose one provider-neutral planner contract with generic endpoint, model,
+  mode, timeout, temperature, and optional API-key configuration.
+- [x] Keep planner credentials in ignored local configuration loaded only by the
+  local server startup path.
+- [x] Keep the deterministic heuristic/state-machine planner as the default for
+  common forms and allow configured model use only by explicit mode or ambiguity.
+- [x] Add `npm run dev` to build the extension and start the loopback planner
+  using optional `.env` and `.env.local` configuration.
+- [x] Clear the in-memory vault and stop active work when a tab changes,
+  navigates, or closes.
+- [x] Add the security status checklist, activity audit trail, privacy receipts,
+  and the light, spacious green-and-white sidebar UI.
+- [x] Make unknown or unsupported media fail closed until a trusted vision pass
+  explains it.
+
+#### Current Tasks
+
+- [ ] Verify the complete Tier 0 loop in supported Chrome and Firefox builds.
+- [ ] Complete the user flow for routine form filling: request missing private
+  values locally, fill safe fields automatically, re-perceive after changes,
+  and require explicit approval before submission or other risky actions.
+- [ ] Run configured-planner end-to-end testing with local credentials and
+  confirm `packet_received`, `planner_fallback`, and `plan_sent.planner_used`
+  logs without exposing endpoint or credential details.
+- [ ] Keep end-to-end fixtures synthetic and document clearly that any remote
+  test endpoint is not a local model and must not receive real user data.
 
 ### Phase 1: Images and metadata
 

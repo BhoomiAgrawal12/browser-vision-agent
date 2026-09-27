@@ -1,6 +1,11 @@
 import { defaultRegistry } from "@kavach/core/detectors";
-import { EgressBlocked, EgressGate, type PrivacyReceipt } from "@kavach/core/gate";
-import { PolicyEngine } from "@kavach/core/policy";
+import {
+  EgressBlocked,
+  EgressGate,
+  type EgressAuditEvent,
+  type PrivacyReceipt,
+} from "@kavach/core/gate";
+import { PolicyEngine, type RawRegion } from "@kavach/core/policy";
 import {
   SCP_SCHEMA_ID,
   isInvariantClass,
@@ -138,12 +143,16 @@ const vault = new Vault();
 const registry = defaultRegistry();
 const policy = new PolicyEngine(registry, vault, POLICY_VERSION);
 let lastHostname: string | null = null;
+let lastTabId: number | null = null;
 let stopRequested = false;
+let activeTaskIntent: string | null = null;
+let resumeAfterSameOriginNavigation = false;
 
 const gate = new EgressGate({
   transport: makeTransport(DEFAULT_SERVER_URL),
   registry,
   vault,
+  audit: { append: renderAuditEvent },
   receipts: {
     append: (r) => {
       receiptHistory.push(r);
@@ -162,6 +171,54 @@ async function activeTab(): Promise<chrome.tabs.Tab> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("no active tab");
   return tab;
+}
+
+async function verifyFormState(tabId: number): Promise<void> {
+  try {
+    const perception = await sendToTab<PerceiveResponse>(tabId, { type: "perceive" });
+    if (!perception.ok) {
+      log("local verification unavailable", "err");
+      return;
+    }
+    const fillable = new Set(["textbox", "password", "combobox"]);
+    const fields = perception.regions.filter((region) => fillable.has(region.role));
+    const filled = fields.filter((field) => field.state?.filled === true).length;
+    const requiredEmpty = fields.filter((field) => {
+      return field.state?.required === true && field.state?.filled !== true && field.state?.disabled !== true;
+    }).length;
+    const invalid = fields.filter((field) => field.state?.invalid === true).length;
+    const optionalEmpty = fields.filter((field) => {
+      return field.state?.required !== true && field.state?.filled !== true && field.state?.disabled !== true;
+    }).length;
+    log(
+      `✓ local verification: ${filled}/${fields.length} fillable fields filled; ` +
+        `${requiredEmpty} required empty; ${invalid} invalid; ${optionalEmpty} optional empty`,
+      requiredEmpty === 0 && invalid === 0 ? "ok" : "err",
+    );
+  } catch {
+    log("local verification unavailable", "err");
+  }
+}
+
+type PacketElement = SanitizedContextPacket["elements"][number];
+
+function promptMemoryKeys(
+  packet: SanitizedContextPacket,
+  element: PacketElement,
+  promptText?: string,
+): string[] {
+  const label = (element.label ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 160);
+  const hint = element.evidence.find((item) => item.startsWith("structural:hint=")) ?? "";
+  const peers = packet.elements.filter((candidate) => {
+    return candidate.role === element.role && candidate.label === element.label;
+  });
+  const ordinal = Math.max(0, peers.findIndex((candidate) => candidate.id === element.id));
+  const keys = [`field|${element.role}|${hint}|${label}|${ordinal}`];
+  if (promptText?.trim()) {
+    const prompt = promptText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 240);
+    keys.push(`prompt|${element.role}|${prompt}`);
+  }
+  return keys;
 }
 
 function buildPacket(
@@ -351,7 +408,12 @@ async function buildVisual(
   }
 }
 
-async function resolveStep(step: PlanStep): Promise<ResolvedStep | "cancelled"> {
+async function resolveStep(
+  step: PlanStep,
+  packet: SanitizedContextPacket,
+  element: PacketElement | undefined,
+  rawElement: RawRegion | undefined,
+): Promise<ResolvedStep | "cancelled"> {
   const resolved: ResolvedStep = { action: step.action };
   if (step.target_element_id) resolved.targetId = step.target_element_id;
   if (step.scroll) resolved.scroll = step.scroll;
@@ -360,8 +422,27 @@ async function resolveStep(step: PlanStep): Promise<ResolvedStep | "cancelled"> 
   if (step.value) {
     switch (step.value.kind) {
       case "user_prompt": {
-        const answer = await ask(step.value.prompt_text);
+        const memoryKeys = element ? promptMemoryKeys(packet, element, step.value.prompt_text) : [];
+        const remembered = element?.state?.invalid
+          ? undefined
+          : memoryKeys.map((key) => vault.recall(key)).find((value) => value !== undefined);
+        if (remembered !== undefined) {
+          log("  reusing the remembered answer for this form field", "dim");
+          resolved.text = remembered;
+          break;
+        }
+        const label = element?.label?.trim() || `the ${element?.role ?? "form"} field`;
+        const validation = rawElement?.validationMessage?.trim();
+        const promptText = validation
+          ? `${validation} Please enter a valid value for ${label}.`
+          : element?.state?.invalid
+            ? `The form rejected the previous value. Please enter a valid value for ${label}.`
+            : element
+              ? `Please provide a value for ${label}.`
+              : step.value.prompt_text;
+        const answer = await ask(promptText);
         if (answer === null) return "cancelled";
+        for (const key of memoryKeys) vault.remember(key, answer);
         resolved.text = answer;
         break;
       }
@@ -372,6 +453,9 @@ async function resolveStep(step: PlanStep): Promise<ResolvedStep | "cancelled"> 
           log(`vault has no value for ${token}; asking user`, "dim");
           const answer = await ask(`The plan needs the value behind ${token}. Provide it:`);
           if (answer === null) return "cancelled";
+          if (element) {
+            for (const key of promptMemoryKeys(packet, element)) vault.remember(key, answer);
+          }
           resolved.text = answer;
           break;
         }
@@ -404,18 +488,34 @@ async function runTask(): Promise<void> {
     return;
   }
 
+  if (activeTaskIntent !== intent || !resumeAfterSameOriginNavigation) {
+    vault.wipe();
+  }
+  activeTaskIntent = intent;
+  resumeAfterSameOriginNavigation = false;
+
   runBtn.disabled = true;
   stopBtn.disabled = false;
   stopRequested = false;
   const history: TaskHistoryStep[] = [];
+  let taskTabId: number | null = null;
+  let awaitingFieldProgress = false;
+  let filledBeforeLastPlan = 0;
 
   try {
     const tab = await activeTab();
+    taskTabId = tab.id!;
     const hostname = tab.url ? new URL(tab.url).hostname : "";
+    if (lastTabId !== null && tab.id !== lastTabId) {
+      vault.wipe();
+      lastHostname = null;
+      log("active tab changed; vault wiped", "dim");
+    }
     if (lastHostname !== null && hostname !== lastHostname) {
       vault.wipe();
       log("origin changed; vault wiped", "dim");
     }
+    lastTabId = tab.id!;
     lastHostname = hostname;
 
     for (let i = 1; i <= MAX_ITERATIONS && !stopRequested; i++) {
@@ -437,6 +537,24 @@ async function runTask(): Promise<void> {
       );
       stats.redacted += sanitized.summary.regionsRedacted;
       renderStats();
+      const filledCount = sanitized.elements.filter((element) => {
+        return (
+          element.state?.filled === true ||
+          element.value?.kind === "placeholder" ||
+          element.value?.kind === "filled"
+        );
+      }).length;
+      if (awaitingFieldProgress) {
+        if (filledCount <= filledBeforeLastPlan) {
+          log("form input did not persist; stopping before repeating the prompt", "err");
+          return;
+        }
+        awaitingFieldProgress = false;
+      }
+      filledBeforeLastPlan = filledCount;
+      if (filledCount > 0) {
+        log(`  resume: ${filledCount} existing field(s) will be left unchanged`, "dim");
+      }
       log(
         `  sanitized: ${sanitized.summary.regionsRedacted} redactions, ` +
           `${sanitized.summary.unexplainedMasked} unexplained masked`,
@@ -472,6 +590,8 @@ async function runTask(): Promise<void> {
       log(`  plan: ${plan.reasoning_summary}`, "ok");
 
       let executedSomething = false;
+      let pageChanged = false;
+      let stateChangingActionExecuted = false;
       for (const step of plan.steps) {
         if (stopRequested) break;
         if (step.action === "done") {
@@ -492,14 +612,24 @@ async function runTask(): Promise<void> {
             continue;
           }
         }
-        const resolved = await resolveStep(step);
+        const el = packet.elements.find((x) => x.id === step.target_element_id);
+        const rawEl = perception.regions.find((x) => x.id === step.target_element_id);
+        const resolved = await resolveStep(step, packet, el, rawEl);
         if (resolved === "cancelled") {
           log("  step cancelled by user", "dim");
           continue;
         }
         let grounding: Grounding | undefined;
-        const el = packet.elements.find((x) => x.id === step.target_element_id);
-        if (el) grounding = { id: el.id, role: el.role, label: el.label, box: el.box };
+        if (el) {
+          grounding = {
+            id: el.id,
+            role: el.role,
+            label: el.label,
+            box: el.box,
+            ...(el.state?.disabled !== undefined ? { disabled: el.state.disabled } : {}),
+            ...(el.state?.readonly !== undefined ? { readonly: el.state.readonly } : {}),
+          };
+        }
 
         const result = await sendToTab<ExecuteResponse>(tab.id!, {
           type: "execute",
@@ -517,9 +647,14 @@ async function runTask(): Promise<void> {
 
         if (result.ok) {
           executedSomething = true;
+          if (step.action === "type") awaitingFieldProgress = true;
+          if (step.action === "click" && step.requires_confirmation) {
+            stateChangingActionExecuted = true;
+          }
           log(`  ✓ ${step.action} ${el?.label ?? step.target_element_id ?? ""}`, "ok");
         } else if (result.error === "regrounding_failed" || result.error === "stale_snapshot") {
           log(`  page changed (${result.detail ?? result.error}); re-perceiving`, "dim");
+          pageChanged = true;
           break; // next iteration re-perceives
         } else {
           log(`  ✗ ${step.action}: ${result.detail ?? result.error}`, "err");
@@ -527,7 +662,21 @@ async function runTask(): Promise<void> {
         await new Promise((r) => setTimeout(r, 350));
       }
 
-      if (!executedSomething && !plan.needs_more_context) {
+      if (pageChanged) {
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+      if (!plan.needs_more_context) {
+        if (!executedSomething) {
+          log("nothing left to execute", "dim");
+          return;
+        }
+        if (stateChangingActionExecuted) {
+          log("✓ plan complete", "ok");
+          return;
+        }
+      }
+      if (!executedSomething) {
         log("nothing left to execute", "dim");
         return;
       }
@@ -538,6 +687,7 @@ async function runTask(): Promise<void> {
   } catch (e) {
     log(`error: ${(e as Error).message}`, "err");
   } finally {
+    if (taskTabId !== null && !stopRequested) await verifyFormState(taskTabId);
     runBtn.disabled = false;
     stopBtn.disabled = true;
   }
@@ -546,6 +696,49 @@ async function runTask(): Promise<void> {
 runBtn.addEventListener("click", () => void runTask());
 $<HTMLButtonElement>("export-receipts").addEventListener("click", exportReceipts);
 stopBtn.addEventListener("click", () => {
+  stopRequested = true;
+  vault.wipe();
+  activeTaskIntent = null;
+  resumeAfterSameOriginNavigation = false;
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId !== lastTabId) return;
+  vault.wipe();
+  stopRequested = true;
+  lastTabId = null;
+  lastHostname = null;
+  activeTaskIntent = null;
+  resumeAfterSameOriginNavigation = false;
+  log("active tab closed; vault wiped", "dim");
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  if (lastTabId === null || tabId === lastTabId) return;
+  vault.wipe();
+  stopRequested = true;
+  lastTabId = tabId;
+  lastHostname = null;
+  activeTaskIntent = null;
+  resumeAfterSameOriginNavigation = false;
+  log("active tab changed; task stopped and vault wiped", "dim");
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId !== lastTabId || !changeInfo.url) return;
+  let nextHostname: string | null = null;
+  try {
+    nextHostname = new URL(changeInfo.url).hostname;
+  } catch {
+    // Invalid or browser-internal URLs are a security boundary.
+  }
+  if (!nextHostname || !lastHostname || nextHostname !== lastHostname) {
+    vault.wipe();
+    activeTaskIntent = null;
+    resumeAfterSameOriginNavigation = false;
+    lastHostname = null;
+    log("origin changed; process memory wiped", "dim");
+  } else {
+    resumeAfterSameOriginNavigation = true;
+    log("same-origin navigation; preserving process memory", "dim");
+  }
   stopRequested = true;
 });
 renderStats();

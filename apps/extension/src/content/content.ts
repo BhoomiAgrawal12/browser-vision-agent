@@ -38,6 +38,14 @@ chrome.runtime.onMessage.addListener(
             const el = message.step.targetId
               ? current.elements.get(message.step.targetId)
               : undefined;
+            if (TARGETED.has(message.step.action) && !message.grounding) {
+              sendResponse({
+                ok: false,
+                error: "unsupported",
+                detail: "target grounding is required",
+              });
+              return;
+            }
             if (message.grounding) {
               const problem = reground(el, message.grounding);
               if (problem) {

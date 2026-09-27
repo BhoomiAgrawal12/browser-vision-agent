@@ -19,7 +19,7 @@ export function makeTransport(url: string = DEFAULT_SERVER_URL): Transport {
         signal: AbortSignal.timeout(20_000),
       });
       if (!res.ok) {
-        throw new Error(`planner returned ${res.status}: ${await res.text()}`);
+        throw new Error(`planner returned ${res.status}`);
       }
       return res.json();
     },

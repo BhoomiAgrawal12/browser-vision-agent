@@ -1,11 +1,16 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import {
   SanitizedContextPacket,
   guardPlanAgainstPacket,
   type ActionPlan,
 } from "@kavach/core/schema";
 import { heuristicPlan } from "./planner/heuristic.js";
-import { ollamaConfigFromEnv, ollamaPlan } from "./planner/ollama.js";
+import {
+  plannerConfigFromEnv,
+  plannerPlan,
+  shouldUseConfiguredPlanner,
+} from "./planner/remote.js";
 import { rescanPacket } from "./rescan.js";
 
 /**
@@ -14,7 +19,7 @@ import { rescanPacket } from "./rescan.js";
  *   POST /plan    Sanitized Context Packet in, Action Plan out.
  *
  * Pipeline: schema validation -> PII re-scan (reject, do not process) ->
- * planner (Ollama when configured, deterministic heuristic otherwise) ->
+ * deterministic planner (configured model only for ambiguous tasks) ->
  * output guard -> respond. The server guards its own output so a broken
  * planner can never emit a plan the client would have to distrust.
  */
@@ -48,6 +53,20 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
+type SafeLogValue = string | number | boolean | readonly string[];
+
+function auditLog(
+  log: (line: string) => void,
+  event: string,
+  fields: Record<string, SafeLogValue> = {},
+): void {
+  log(JSON.stringify({ timestamp_ms: Date.now(), event, ...fields }));
+}
+
+function packetLogKey(packetId: string): string {
+  return `pkt_${createHash("sha256").update(packetId).digest("hex").slice(0, 16)}`;
+}
+
 export interface ServerOptions {
   env?: Record<string, string | undefined>;
   log?: (line: string) => void;
@@ -56,14 +75,16 @@ export interface ServerOptions {
 export function makeServer(options: ServerOptions = {}): Server {
   const env = options.env ?? process.env;
   const log = options.log ?? ((line: string) => console.log(line));
-  const ollama = ollamaConfigFromEnv(env);
+  const configuredPlanner = plannerConfigFromEnv(env);
 
   return createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
         json(res, 200, {
           ok: true,
-          planner: ollama ? `ollama:${ollama.model}` : "heuristic",
+          planner: configuredPlanner
+            ? `configured:${configuredPlanner.mode}`
+            : "heuristic",
         });
         return;
       }
@@ -74,12 +95,17 @@ export function makeServer(options: ServerOptions = {}): Server {
         try {
           parsed = JSON.parse(raw);
         } catch {
+          auditLog(log, "packet_rejected", { reason: "invalid_json" });
           json(res, 400, { error: "invalid JSON" });
           return;
         }
 
         const result = SanitizedContextPacket.safeParse(parsed);
         if (!result.success) {
+          auditLog(log, "packet_rejected", {
+            reason: "schema_validation",
+            issues: result.error.issues.length,
+          });
           json(res, 422, {
             error: "packet failed schema validation",
             issues: result.error.issues.slice(0, 10),
@@ -87,14 +113,24 @@ export function makeServer(options: ServerOptions = {}): Server {
           return;
         }
         const packet = result.data;
+        auditLog(log, "packet_received", {
+          packet_key: packetLogKey(packet.packet_id),
+          mode: packet.policy.mode,
+          elements: packet.elements.length,
+          redactions: packet.visual.regions_redacted,
+          visual: packet.visual.present,
+          planner: configuredPlanner ? `configured:${configuredPlanner.mode}` : "heuristic",
+        });
 
         // Defence in depth: a packet carrying raw PII is a broken client.
         const rescanned = rescanPacket(packet);
         if (rescanned.length > 0) {
-          log(
-            `REJECTED packet ${packet.packet_id}: re-scan found ` +
-              rescanned.map((i) => `${i.cls} at ${i.path}`).join(", "),
-          );
+          auditLog(log, "packet_rejected", {
+            packet_key: packetLogKey(packet.packet_id),
+            reason: "rescan_detected_pii",
+            classes: [...new Set(rescanned.map((i) => i.cls))],
+            findings: rescanned.length,
+          });
           json(res, 422, {
             error: "packet rejected: sanitization incomplete",
             classes: [...new Set(rescanned.map((i) => i.cls))],
@@ -102,36 +138,72 @@ export function makeServer(options: ServerOptions = {}): Server {
           return;
         }
 
-        let plan: ActionPlan;
-        if (ollama) {
+        const deterministicPlan = heuristicPlan(packet);
+        let plan: ActionPlan = deterministicPlan;
+        let plannerUsed: "heuristic" | "configured" = "heuristic";
+        if (
+          configuredPlanner &&
+          shouldUseConfiguredPlanner(packet, deterministicPlan, configuredPlanner)
+        ) {
           try {
-            plan = await ollamaPlan(packet, ollama);
+            const configuredPlan = await plannerPlan(packet, configuredPlanner);
+            const configuredIssues = guardPlanAgainstPacket(configuredPlan, packet);
+            const configuredPlanEmpty = configuredPlan.steps.length === 0 && deterministicPlan.steps.length > 0;
+            if (configuredIssues.length > 0 || configuredPlanEmpty) {
+              auditLog(log, "planner_fallback", {
+                packet_key: packetLogKey(packet.packet_id),
+                reason: configuredPlanEmpty
+                  ? "configured_plan_empty"
+                  : "configured_plan_failed_action_guard",
+                issues: configuredIssues.length,
+                issue_steps: configuredIssues.slice(0, 4).map((issue) => `${issue.step}:${issue.problem}`),
+              });
+            } else {
+              plan = configuredPlan;
+              plannerUsed = "configured";
+            }
           } catch (e) {
-            log(`ollama failed (${(e as Error).message}); using heuristic planner`);
-            plan = heuristicPlan(packet);
+            auditLog(log, "planner_fallback", {
+              packet_key: packetLogKey(packet.packet_id),
+              reason: "configured_planner_failed",
+              error: e instanceof Error ? e.name : "unknown",
+            });
+            plan = deterministicPlan;
           }
-        } else {
-          plan = heuristicPlan(packet);
         }
 
         // The server guards its own output before it leaves.
         const issues = guardPlanAgainstPacket(plan, packet);
         if (issues.length > 0) {
-          log(
-            `planner produced a guarded-out plan for ${packet.packet_id}: ` +
-              issues.map((i) => i.problem).join("; "),
-          );
+          auditLog(log, "plan_rejected", {
+            packet_key: packetLogKey(packet.packet_id),
+            reason: "deterministic_plan_failed_action_guard",
+            issues: issues.length,
+          });
           json(res, 500, { error: "planner output failed the guard" });
           return;
         }
 
+        auditLog(log, "plan_sent", {
+          packet_key: packetLogKey(packet.packet_id),
+          steps: plan.steps.length,
+          actions: plan.steps.map((step) => `${step.action}:${step.target_element_id ?? "-"}`),
+          confidence: plan.confidence,
+          needs_more_context: plan.needs_more_context,
+          planner_used: plannerUsed,
+        });
         json(res, 200, plan);
         return;
       }
 
       json(res, 404, { error: "not found" });
     } catch (e) {
-      json(res, 500, { error: (e as Error).message });
+      auditLog(log, "request_error", {
+        error: e instanceof Error ? e.name : "unknown",
+      });
+      // Never echo planner or parser messages: a malformed response can carry
+      // page-derived text, and errors are not a safe data channel.
+      json(res, 500, { error: "internal planner error" });
     }
   });
 }
