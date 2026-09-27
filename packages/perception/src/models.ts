@@ -21,20 +21,21 @@ export interface ModelManifest {
 }
 
 /**
- * The registry is intentionally empty until real models are vetted: an
- * entry here is a statement that the exact bytes at that hash were
- * reviewed for licence and provenance. Example shape:
- *
- * {
- *   name: "ultraface-320",
- *   version: "1.0",
- *   url: "https://models.example.org/ultraface-version-RFB-320.onnx",
- *   sha256: "<pinned>",
- *   bytes: 1_263_000,
- *   license: "MIT",
- * }
+ * An entry here is a statement that the exact bytes at that hash were
+ * reviewed for licence and provenance (see models/README.md). Vendored
+ * models ship inside the extension; the url is the upstream source the
+ * bytes were taken from, kept for re-verification.
  */
-export const MODEL_REGISTRY: ModelManifest[] = [];
+export const ULTRAFACE_MANIFEST: ModelManifest = {
+  name: "ultraface-rfb-320",
+  version: "1.0",
+  url: "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",
+  sha256: "34cd7e60aeff28744c657de7a3dc64e872d506741de66987f3426f2b79f88017",
+  bytes: 1_270_727,
+  license: "MIT",
+};
+
+export const MODEL_REGISTRY: ModelManifest[] = [ULTRAFACE_MANIFEST];
 
 export class ModelVerificationError extends Error {
   constructor(name: string, detail: string) {

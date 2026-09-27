@@ -26,6 +26,10 @@ const common = {
       run_at: "document_idle",
     },
   ],
+  // The on-device models run as WebAssembly inside extension pages.
+  content_security_policy: {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+  },
 };
 
 const HOSTS = ["http://127.0.0.1:8787/*", "http://localhost:8787/*"];
@@ -43,6 +47,8 @@ const chromeManifest = {
 const firefoxManifest = {
   manifest_version: 2,
   ...common,
+  // MV2 takes the CSP as a plain string.
+  content_security_policy: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   permissions: [...common.permissions, ...HOSTS],
   background: { scripts: ["background.js"] },
   browser_action: { default_title: "Kavach" },
@@ -78,6 +84,25 @@ for (const [target, manifest] of [
 
   cpSync(join(HERE, "src/panel/panel.html"), join(out, "panel.html"));
   cpSync(join(HERE, "src/panel/panel.css"), join(out, "panel.css"));
+
+  // On-device inference runtime and vendored models.
+  const ortDist = join(HERE, "../../node_modules/onnxruntime-web/dist");
+  mkdirSync(join(out, "ort"), { recursive: true });
+  cpSync(join(ortDist, "ort.min.js"), join(out, "ort", "ort.min.js"));
+  for (const asset of [
+    "ort-wasm-simd-threaded.wasm",
+    "ort-wasm-simd-threaded.mjs",
+    "ort-wasm-simd-threaded.jsep.wasm",
+    "ort-wasm-simd-threaded.jsep.mjs",
+  ]) {
+    cpSync(join(ortDist, asset), join(out, "ort", asset));
+  }
+  mkdirSync(join(out, "models"), { recursive: true });
+  cpSync(
+    join(HERE, "../../packages/perception/models/ultraface-rfb-320.onnx"),
+    join(out, "models", "ultraface-rfb-320.onnx"),
+  );
+
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
   console.log(`built dist/${target}`);
 }

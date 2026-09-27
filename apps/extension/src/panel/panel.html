@@ -64,7 +64,10 @@
   </section>
 
   <section class="receipts-section">
-    <h2>Privacy receipts</h2>
+    <div class="section-head">
+      <h2>Privacy receipts</h2>
+      <button id="export-receipts" class="small" disabled>Export JSON</button>
+    </div>
     <div id="receipts" class="receipts"></div>
   </section>
 
@@ -89,6 +92,7 @@
     </form>
   </dialog>
 
+  <script src="ort/ort.min.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>

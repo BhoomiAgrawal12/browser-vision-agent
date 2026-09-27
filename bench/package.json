@@ -7,10 +7,12 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "bench": "tsx src/run.ts"
+    "bench": "tsx src/run.ts",
+    "bench:latency": "tsx src/latency.ts"
   },
   "dependencies": {
-    "@kavach/core": "*"
+    "@kavach/core": "*",
+    "@kavach/perception": "*"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

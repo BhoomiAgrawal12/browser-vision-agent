@@ -112,3 +112,53 @@ describe("resolveOverlaps", () => {
     expect(kept.map((s) => s.cls)).toEqual(["AADHAAR", "EMAIL"]);
   });
 });
+
+describe("adversarial formats (corpus-driven hardening)", () => {
+  it("catches Aadhaar with unicode dashes (en dash, em dash)", () => {
+    const spans = reg.analyze("ID 8473–2619–0458 on file");
+    expect(spans.find((s) => s.cls === "AADHAAR")?.normalized).toBe("847326190458");
+    expect(reg.analyze("ID 9999—4105—7058 here")[0]?.cls).toBe("AADHAAR");
+  });
+
+  it("catches spaced PAN segments", () => {
+    expect(classes("PAN ABCPE 1234 F on record")).toContain("PAN");
+  });
+
+  it("catches unformatted INR amounts", () => {
+    expect(classes("Pay ₹2000 now")).toContain("AMOUNT");
+    expect(classes("Fee Rs 450 applies")).toContain("AMOUNT");
+  });
+
+  it("digit-spacing evasion is collapsed and checksum-validated", () => {
+    const spans = reg.analyze("code 5 2 0 9 8 7 1 6 3 4 9 9 end");
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toMatchObject({ cls: "AADHAAR", normalized: "520987163499" });
+    expect(spans[0]!.evidence).toContain("pattern:digit-spacing-evasion");
+  });
+
+  it("digit-spacing evasion also covers cards and phones", () => {
+    expect(reg.analyze("5 5 5 5 5 5 5 5 5 5 5 5 4 4 4 4")[0]?.cls).toBe("CARD_NUMBER");
+    expect(reg.analyze("call 9 8 7 6 5 4 3 2 1 0 ok")[0]?.cls).toBe("PHONE_IN");
+  });
+
+  it("a spaced-out ORDER ID does not fire the evasion recognizer: precision", () => {
+    expect(reg.analyze("ref 7 8 4 5 1 2 3 6 9 0 1 4 shipped")).toHaveLength(0);
+  });
+
+  it("Hindi context words boost weak shapes", () => {
+    expect(classes("पिन कोड: 110001")).toContain("PIN_CODE");
+    expect(classes("खाता 123456789012")).toContain("BANK_ACCOUNT");
+  });
+});
+
+describe("Aadhaar inside longer digit runs", () => {
+  it("does not flag a Verhoeff-valid 12-digit window of a 16-digit card", () => {
+    // First 12 digits of this Luhn-INVALID card happen to pass Verhoeff.
+    const spans = reg.analyze("txn 4539 1488 0343 6468 logged");
+    expect(spans.find((s) => s.cls === "AADHAAR")).toBeUndefined();
+  });
+
+  it("still catches a genuine spaced Aadhaar at run boundaries", () => {
+    expect(classes("id 9999 4105 7058 ok")).toContain("AADHAAR");
+  });
+});
