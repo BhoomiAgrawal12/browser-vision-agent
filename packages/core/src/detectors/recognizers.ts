@@ -165,13 +165,45 @@ export class RecognizerRegistry {
 export function defaultRegistry(): RecognizerRegistry {
   const reg = new RecognizerRegistry();
 
+  // Digit-spacing evasion: "9 9 9 9 4 1 0 5 7 0 5 8" defeats plain digit
+  // patterns. Collapse single-spaced digit runs and hand the result to the
+  // checksum validators; only validated hits fire, so an order id spaced
+  // the same way stays untouched.
+  reg.register({
+    name: "digit-spacing",
+    cls: "AADHAAR",
+    recognize(text: string): PiiSpan[] {
+      const spans: PiiSpan[] = [];
+      for (const m of text.matchAll(/(?<!\d)(?<!\d )\d(?: \d){9,18}(?! ?\d)/g)) {
+        const collapsed = m[0].replace(/ /g, "");
+        const candidates: [PiiClass, Validation][] = [
+          ["AADHAAR", validateAadhaar(collapsed)],
+          ["CARD_NUMBER", validateCardNumber(collapsed)],
+          ["PHONE_IN", validateIndianMobile(collapsed)],
+        ];
+        const hit = candidates.find(([, v]) => v.valid && v.strength !== "format");
+        if (!hit) continue;
+        spans.push({
+          cls: hit[0],
+          start: m.index,
+          end: m.index + m[0].length,
+          text: m[0],
+          confidence: hit[1].strength === "checksum" ? 0.99 : 0.85,
+          evidence: ["pattern:digit-spacing-evasion"],
+          ...(hit[1].normalized !== undefined ? { normalized: hit[1].normalized } : {}),
+        });
+      }
+      return spans;
+    },
+  });
+
   reg.register(
     makePatternRecognizer({
       name: "aadhaar",
       cls: "AADHAAR",
-      pattern: /(?<!\d)\d{4}[\s-]?\d{4}[\s-]?\d{4}(?!\d)/,
+      pattern: /(?<!\d)\d{4}[\s\-‐-―]?\d{4}[\s\-‐-―]?\d{4}(?!\d)/,
       validate: validateAadhaar,
-      contextWords: ["aadhaar", "aadhar", "uid", "uidai"],
+      contextWords: ["aadhaar", "aadhar", "uid", "uidai", "आधार"],
     }),
   );
 
@@ -179,7 +211,7 @@ export function defaultRegistry(): RecognizerRegistry {
     makePatternRecognizer({
       name: "pan",
       cls: "PAN",
-      pattern: /\b[A-Za-z]{5}\d{4}[A-Za-z]\b/,
+      pattern: /\b[A-Za-z]{5}[ ]?\d{4}[ ]?[A-Za-z]\b/,
       validate: validatePan,
       contextWords: ["pan", "permanent account"],
     }),
@@ -211,7 +243,7 @@ export function defaultRegistry(): RecognizerRegistry {
     makePatternRecognizer({
       name: "card",
       cls: "CARD_NUMBER",
-      pattern: /(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/,
+      pattern: /(?<!\d)(?:\d[ \-‐-―]?){12,18}\d(?!\d)/,
       validate: validateCardNumber,
       contextWords: ["card", "credit", "debit", "visa", "mastercard", "rupay"],
     }),
@@ -244,7 +276,7 @@ export function defaultRegistry(): RecognizerRegistry {
       cls: "PHONE_IN",
       pattern: /(?<![\d@])(?:\+91[\s-]?|91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}(?![\d@])/,
       validate: validateIndianMobile,
-      contextWords: ["phone", "mobile", "contact", "whatsapp", "call", "sms"],
+      contextWords: ["phone", "mobile", "contact", "whatsapp", "call", "sms", "मोबाइल", "फ़ोन", "फोन", "दूरभाष"],
     }),
   );
 
@@ -258,7 +290,7 @@ export function defaultRegistry(): RecognizerRegistry {
       validate: validatePinCode,
       validatorAsGate: true,
       baseConfidence: 0.3,
-      contextWords: ["pin", "pincode", "pin code", "postal", "zip"],
+      contextWords: ["pin", "pincode", "pin code", "postal", "zip", "पिन", "पिनकोड", "डाक"],
       contextBoost: 0.45,
     }),
   );
@@ -271,7 +303,7 @@ export function defaultRegistry(): RecognizerRegistry {
       validate: validateBankAccount,
       validatorAsGate: true,
       baseConfidence: 0.25,
-      contextWords: ["account", "a/c", "acct", "acc no", "khata"],
+      contextWords: ["account", "a/c", "acct", "acc no", "khata", "खाता", "खाता संख्या"],
       contextBoost: 0.5,
     }),
   );
@@ -302,7 +334,7 @@ export function defaultRegistry(): RecognizerRegistry {
     makePatternRecognizer({
       name: "amount-inr",
       cls: "AMOUNT",
-      pattern: /(?:₹|Rs\.?|INR)\s?\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\b/,
+      pattern: /(?:₹|Rs\.?|INR)\s?(?:\d{1,3}(?:,\d{2,3})+|\d{1,7})(?:\.\d{1,2})?\b/,
       baseConfidence: 0.8,
       contextWords: ["balance", "amount", "total", "due", "paid", "salary"],
       contextBoost: 0.15,
