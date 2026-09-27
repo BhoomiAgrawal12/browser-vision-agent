@@ -150,3 +150,15 @@ describe("adversarial formats (corpus-driven hardening)", () => {
     expect(classes("खाता 123456789012")).toContain("BANK_ACCOUNT");
   });
 });
+
+describe("Aadhaar inside longer digit runs", () => {
+  it("does not flag a Verhoeff-valid 12-digit window of a 16-digit card", () => {
+    // First 12 digits of this Luhn-INVALID card happen to pass Verhoeff.
+    const spans = reg.analyze("txn 4539 1488 0343 6468 logged");
+    expect(spans.find((s) => s.cls === "AADHAAR")).toBeUndefined();
+  });
+
+  it("still catches a genuine spaced Aadhaar at run boundaries", () => {
+    expect(classes("id 9999 4105 7058 ok")).toContain("AADHAAR");
+  });
+});

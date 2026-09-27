@@ -136,7 +136,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 0.85, y: 4.35, w: 11.6, h: 0.8, fontFace: FONT, fontSize: 14, color: "E8EEF5" },
   );
   s.addText(
-    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  193 automated tests",
+    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  194 automated tests",
     { x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
@@ -450,7 +450,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     s.addText(cap, { x: x + 0.06, y: 1.86, w: 2.2, h: 0.42, fontFace: FONT, fontSize: 8.8, color: SOFT, align: "center" });
   });
 
-  s.addText("Detection quality (RedactBench-Web, Shield tier)", {
+  s.addText("Detection quality (RedactBench-Web adversarial corpus, Shield tier)", {
     x: 0.55, y: 2.55, w: 6.3, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: NAVY,
   });
   const g = (t) => ({ text: t, options: { ...td, color: GREEN, bold: true } });
@@ -458,21 +458,23 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     [
       [{ text: "Class group", options: th }, { text: "Support", options: th },
        { text: "Precision", options: th }, { text: "Recall", options: th }],
-      [{ text: "Govt IDs: Aadhaar, PAN, GSTIN (checksums)", options: td }, { text: "7", options: td }, g("100%"), g("100%")],
-      [{ text: "Financial: card, IFSC, bank a/c, UPI, amounts", options: td }, { text: "8", options: td }, g("100%"), g("100%")],
-      [{ text: "Contact: email, phone (IN)", options: td }, { text: "9", options: td }, g("100%"), g("100%")],
-      [{ text: "Visual: faces, QR, unexplained media", options: td }, { text: "5", options: td }, g("100%"), g("100%")],
-      [{ text: "DOB, vehicle registration", options: td }, { text: "2", options: td }, g("100%"), g("100%")],
+      [{ text: "Checksummed IDs: Aadhaar, PAN, GSTIN", options: td }, { text: "14", options: td }, g("100%"), g("100%")],
+      [{ text: "Financial: card, IFSC, bank a/c, UPI, amounts", options: td }, { text: "13", options: td }, g("100%"), g("100%")],
+      [{ text: "Phone (IN), incl. spaced-digit evasion", options: td }, { text: "6", options: td }, g("100%"), g("100%")],
+      [{ text: "Visual: faces, QR, unexplained media", options: td }, { text: "8", options: td }, g("100%"), g("100%")],
+      [{ text: "Email (obfuscated [at]/[dot]: known gap)", options: td }, { text: "6", options: td }, { text: "100%", options: td }, { text: "83.3%", options: td }],
+      [{ text: "DOB (table-cell context: Fortress catches)", options: td }, { text: "2", options: td }, { text: "100%", options: td }, { text: "50%", options: td }],
       [{ text: "Address in free text (NER tier pending)", options: td }, { text: "2", options: td }, { text: "100%", options: td }, { text: "50%", options: td }],
-      [{ text: "Bare names, PIN code (documented gaps)", options: td }, { text: "2", options: td }, { text: "n/a", options: td }, { text: "0%", options: td }],
-      [{ text: "micro average", options: { ...td, bold: true } }, { text: "35", options: { ...td, bold: true } },
-       { text: "100%", options: { ...td, bold: true, color: GREEN } }, { text: "91.4%", options: { ...td, bold: true } }],
+      [{ text: "Names, PIN code (documented gaps)", options: td }, { text: "3", options: td }, { text: "n/a", options: td }, { text: "0%", options: td }],
+      [{ text: "Vehicle registration", options: td }, { text: "1", options: td }, g("100%"), g("100%")],
+      [{ text: "micro average", options: { ...td, bold: true } }, { text: "55", options: { ...td, bold: true } },
+       { text: "100%", options: { ...td, bold: true, color: GREEN } }, { text: "89.1%", options: { ...td, bold: true } }],
     ],
     { x: 0.55, y: 2.9, w: 6.3, colW: [3.6, 0.8, 0.95, 0.95], border: { pt: 0.5, color: RULE }, rowH: 0.4 },
   );
   s.addText(
-    "Fortress mode: recall 94.3% (catches the PIN code) at the cost of one bounded false alarm. " +
-      "Negatives (order ids, helplines, appointment dates) must NOT be masked, and are not. Reproduce: npm run bench",
+    "Fortress mode: recall 94.5% (catches PIN codes and table-cell DOB) at the cost of one bounded false alarm. " +
+      "Adversarial negatives (en-dash lookalikes, Luhn-fail cards, spaced order ids, employee ids) must NOT be masked, and are not. Reproduce: npm run bench",
     { x: 0.55, y: 6.6, w: 6.3, h: 0.75, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
   );
   s.addImage(fit(A("chart-latency.png"), 7.05, 2.35, 5.75, 4.6));
@@ -513,9 +515,9 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 7.25, y: 3.6, w: 5.5, colW: [3.6, 1.9], border: { pt: 0.5, color: RULE }, rowH: 0.35 },
   );
   s.addText(
-    "Suite footprint: 193 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
-      "corpus: 12 slices, 35 annotated instances + declared negatives · numbers regenerate with " +
-      "npm run bench and npm run bench:latency",
+    "Suite footprint: 194 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
+      "corpus: 18 captures, 55 annotated positives + adversarial lookalike negatives (unicode dashes, " +
+      "digit-spacing evasions, Hindi labels, table splits) · regenerate: npm run bench, npm run bench:latency",
     { x: 7.25, y: 6.25, w: 5.5, h: 1.0, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
   );
 }
@@ -525,7 +527,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   const s = slide();
   title(s, "Engineering discipline", "The boundary is enforced by the build, not by promises");
   bullets(s, [
-    { t: "193 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
+    { t: "194 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
     { t: "check-egress fails the build if fetch or any network API appears outside three allowlisted transport modules.", },
     { t: "One zod schema package is imported by both client and server: the wire contract cannot drift.", },
     { t: "Model provenance is a test: the vendored ONNX bytes are hashed against the pinned SHA in CI.", },
@@ -559,7 +561,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
       [{ text: "Visual context accuracy (25%)", options: td },
        { text: "DOM+vision fusion, explained-area metric, re-grounding before every action", options: td }],
       [{ text: "PII recall + precision (20%)", options: td },
-       { text: "Measured: 100% precision, 0 invariant leaks, checksum-perfect Indian IDs, published gap list", options: td }],
+       { text: "Measured on an adversarial corpus: 100% precision, 0 invariant leaks, checksum-perfect IDs, published gap list", options: td }],
       [{ text: "Redaction precision (20%)", options: td },
        { text: "Fresh-canvas rule, pixel self-check before send, adaptive dilation, blur attack demo", options: td }],
       [{ text: "Client resources (20%)", options: td },

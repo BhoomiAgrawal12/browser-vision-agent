@@ -201,7 +201,7 @@ export function defaultRegistry(): RecognizerRegistry {
     makePatternRecognizer({
       name: "aadhaar",
       cls: "AADHAAR",
-      pattern: /(?<!\d)\d{4}[\s\-‐-―]?\d{4}[\s\-‐-―]?\d{4}(?!\d)/,
+      pattern: /(?<![\d][\s\-‐-―])(?<!\d)\d{4}[\s\-‐-―]?\d{4}[\s\-‐-―]?\d{4}(?![\s\-‐-―]?\d)/,
       validate: validateAadhaar,
       contextWords: ["aadhaar", "aadhar", "uid", "uidai", "आधार"],
     }),
