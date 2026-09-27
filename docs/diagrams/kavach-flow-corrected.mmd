@@ -1,0 +1,60 @@
+flowchart TB
+    subgraph LOCAL["ON-DEVICE: PERCEIVE AND SANITIZE  (browser extension, trusted)"]
+        direction LR
+        U["1. User task<br/>+ privacy mode<br/>Shield / Fortress / Wireframe"]
+        OBS["2. Observe<br/>DOM + accessibility (~15 ms)<br/>visible-viewport capture<br/>origin class, never the URL"]
+        VIS["3. On-device vision<br/>faces: UltraFace ~13 ms (shipped)<br/>text / OCR / QR: next tiers"]
+        FUSE["4. Scene graph fusion<br/>IoU + centroid match<br/>unexplained pixels FAIL CLOSED:<br/>masked, never guessed"]
+        EV["5. Evidence E1-E4<br/>structure, pattern + checksums<br/>(Verhoeff, Luhn, GSTIN, IFSC),<br/>semantics, visual"]
+        RISK["6. Risk scorer<br/>class + confidence per region<br/>invariant floor holds<br/>in EVERY mode"]
+        SAN["7. Sanitize<br/>mint typed tokens into vault,<br/>fresh-canvas flat fill + stamps,<br/>pixel self-check: on failure<br/>drop image, send structure only"]
+        PKT["8. Sanitized Context Packet<br/>legend + placeholders + sha256<br/>Wireframe: schema rejects pixels"]
+        GATE{"9. Egress Gate<br/>one door to the network<br/>schema, PII tripwire re-scan,<br/>vault leak scan, caps,<br/>receipt BEFORE send"}
+        BLK["Blocked: nothing sent,<br/>blocked receipt logged"]
+        U --> OBS --> VIS --> FUSE --> EV --> RISK --> SAN --> PKT --> GATE
+        GATE -->|"tripwire fires"| BLK
+    end
+
+    subgraph SRV["SERVER  (untrusted by design)"]
+        direction LR
+        V1["10. Schema validation<br/>same zod schema<br/>as the client"]
+        V2["11. Independent PII re-scan<br/>leaky packet rejected (422),<br/>never processed"]
+        PLAN["12. Redaction-aware planner<br/>legend quoted in prompt,<br/>page text wrapped as data<br/>heuristic default, model optional"]
+        OG["13. Server output guard<br/>closed verbs, element ids only,<br/>no coordinates, risky steps<br/>need confirmation"]
+        V1 --> V2 --> PLAN --> OG
+    end
+
+    subgraph ACT["ON-DEVICE: VERIFY AND ACT  (trusted)"]
+        direction LR
+        CG["14. Client re-guards plan<br/>(guard runs on BOTH sides)<br/>bad plan rejected whole"]
+        RES["15. Resolve values<br/>user_prompt asks the human;<br/>vault refill of secrets<br/>only with consent"]
+        RG{"16. Re-ground<br/>element still exists,<br/>same role + label,<br/>geometry within tolerance?"}
+        CONF{"17. State-changing?"}
+        APP["User approval<br/>(mandatory,<br/>client-enforced)"]
+        EXE["18. Execute<br/>click / type / clear / select /<br/>focus / scroll / wait<br/>(no navigate verb by design)"]
+        VER{"19. Verify + re-observe<br/>task complete?"}
+        DONE["20. Report<br/>leak meter, privacy receipts<br/>(sha256 proofs), export JSON"]
+        CG --> RES --> RG
+        RG -->|"ok"| CONF
+        CONF -->|"yes"| APP --> EXE
+        CONF -->|"no"| EXE
+        EXE --> VER
+        VER -->|"yes"| DONE
+        VER -->|"no"| LOOP
+        RG -->|"page changed"| LOOP
+        LOOP["RE-PERCEIVE<br/>abort step, back to 2. Observe:<br/>fresh snapshot, never guess"]
+    end
+
+    LOCAL ==>|"the one network call"| SRV
+    SRV ==>|"guarded Action Plan"| ACT
+
+    style GATE fill:#7b2d26,color:#ffffff
+    style BLK fill:#7b2d26,color:#ffffff
+    style V2 fill:#7b2d26,color:#ffffff
+    style OG fill:#1f4e79,color:#ffffff
+    style CG fill:#1f4e79,color:#ffffff
+    style SAN fill:#1f4e79,color:#ffffff
+    style APP fill:#8a6d1a,color:#ffffff
+    style DONE fill:#3d5a3d,color:#ffffff
+    style LOOP fill:#e8f0e8,stroke:#3d5a3d,stroke-dasharray: 4 3
+    style SRV fill:#f0f0f2,stroke:#3a3a3a
