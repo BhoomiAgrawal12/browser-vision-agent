@@ -136,7 +136,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 0.85, y: 4.35, w: 11.6, h: 0.8, fontFace: FONT, fontSize: 14, color: "E8EEF5" },
   );
   s.addText(
-    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  194 automated tests",
+    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  203 automated tests",
     { x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
@@ -515,7 +515,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 7.25, y: 3.6, w: 5.5, colW: [3.6, 1.9], border: { pt: 0.5, color: RULE }, rowH: 0.35 },
   );
   s.addText(
-    "Suite footprint: 194 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
+    "Suite footprint: 203 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
       "corpus: 18 captures, 55 annotated positives + adversarial lookalike negatives (unicode dashes, " +
       "digit-spacing evasions, Hindi labels, table splits) · regenerate: npm run bench, npm run bench:latency",
     { x: 7.25, y: 6.25, w: 5.5, h: 1.0, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
@@ -527,7 +527,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   const s = slide();
   title(s, "Engineering discipline", "The boundary is enforced by the build, not by promises");
   bullets(s, [
-    { t: "194 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
+    { t: "203 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
     { t: "check-egress fails the build if fetch or any network API appears outside three allowlisted transport modules.", },
     { t: "One zod schema package is imported by both client and server: the wire contract cannot drift.", },
     { t: "Model provenance is a test: the vendored ONNX bytes are hashed against the pinned SHA in CI.", },

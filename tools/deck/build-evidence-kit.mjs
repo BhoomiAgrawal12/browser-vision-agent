@@ -96,7 +96,7 @@ say it as future work, never as a result). Images live in
 <code>npm run demo:deblur</code>.</p>
 <div class="cover-note">
 <b>Inventory:</b> 5 stat-tile sets · 6 charts · 4 prototype screenshots · 3 attack images ·
-9 rendered flowcharts · 4 benchmark tables · 194 automated tests behind the numbers.<br>
+9 rendered flowcharts · 4 benchmark tables · 203 automated tests behind the numbers.<br>
 <b>Rule of use:</b> one hero asset per slide plus one table or stat row. Do not stack three
 charts on one slide.
 </div>
