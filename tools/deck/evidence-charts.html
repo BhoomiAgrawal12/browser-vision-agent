@@ -1,0 +1,93 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  body { margin: 0; background: #ffffff; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .fig { display: inline-block; background: #ffffff; padding: 8px; }
+  text { fill: #16181d; }
+  .title { font-size: 21px; font-weight: 650; }
+  .sub { font-size: 14px; fill: #5a6470; }
+  .lab { font-size: 14px; }
+  .val { font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .axis { font-size: 12px; fill: #5a6470; }
+  .note { font-size: 12.5px; fill: #5a6470; font-style: italic; }
+</style></head><body>
+<div class="fig" id="corpus"><svg width="1160" height="620" id="svg-corpus"></svg></div>
+<div class="fig" id="resource"><svg width="1160" height="560" id="svg-res"></svg></div>
+<script>
+const NAVY = "#1f4e79", GRID = "#e3e6ea", RED = "#7b2d26";
+const NS = "http://www.w3.org/2000/svg";
+function el(svg, tag, attrs, text) {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (text !== undefined) n.textContent = text;
+  svg.appendChild(n);
+  return n;
+}
+function bar(svg, x, y, w, h, fill) {
+  const r = Math.min(4, w);
+  el(svg, "path", { d:
+    `M ${x} ${y} H ${x + w - r} Q ${x + w} ${y} ${x + w} ${y + r} ` +
+    `V ${y + h - r} Q ${x + w} ${y + h} ${x + w - r} ${y + h} H ${x} Z`, fill });
+}
+
+/* Corpus composition */
+{
+  const svg = document.getElementById("svg-corpus");
+  const rows = [
+    ["Government portals (incl. Hindi labels, KYC tables)", 5],
+    ["Adversarial formats, evasions and negatives", 3],
+    ["Banking and payments", 3],
+    ["Mail", 2],
+    ["Social and media-heavy", 2],
+    ["Commerce, healthcare, enterprise", 3],
+  ];
+  el(svg, "text", { x: 12, y: 34, class: "title" }, "RedactBench-Web corpus composition");
+  el(svg, "text", { x: 12, y: 60, class: "sub" },
+    "18 captures · 55 annotated positives · 12 declared lookalike negatives · all personas synthetic (UIDAI test ranges)");
+  const X0 = 500, X1 = 1060, U = (X1 - X0) / 5;
+  for (const t of [0, 1, 2, 3, 4, 5]) {
+    const x = X0 + t * U;
+    el(svg, "line", { x1: x, y1: 84, x2: x, y2: 470, stroke: GRID });
+    el(svg, "text", { x, y: 490, class: "axis", "text-anchor": "middle" }, String(t));
+  }
+  rows.forEach(([name, count], i) => {
+    const y = 98 + i * 62;
+    el(svg, "text", { x: X0 - 14, y: y + 20, class: "lab", "text-anchor": "end" }, name);
+    bar(svg, X0, y, count * U, 30, NAVY);
+    el(svg, "text", { x: X0 + count * U + 10, y: y + 20, class: "val" },
+      count + (count === 1 ? " capture" : " captures"));
+  });
+  el(svg, "text", { x: 12, y: 530, class: "note" },
+    "Negatives make precision measurable: order ids, toll-free helplines, appointment dates,");
+  el(svg, "text", { x: 12, y: 552, class: "note" },
+    "employee ids, en-dash lookalikes, Luhn-fail cards and spaced order ids must NOT be masked, and are not.");
+}
+
+/* Resource footprint */
+{
+  const svg = document.getElementById("svg-res");
+  el(svg, "text", { x: 12, y: 34, class: "title" }, "Client-side resource footprint");
+  el(svg, "text", { x: 12, y: 60, class: "sub" },
+    "everything runs in a browser side panel: no GPU required, no server-side vision, no telemetry");
+  const tiles = [
+    ["1.27 MB", "on-device face model,", "SHA-256 pinned in source"],
+    ["1 thread", "WASM inference bound;", "WebGPU used when present"],
+    ["0 models", "needed for Tier 0:", "forms work structure-only"],
+    ["~62 KB", "sanitized WebP frame", "(1024px, quality 0.8)"],
+    ["~9 KB", "Wireframe packet:", "zero pixels leave"],
+    ["1 skip", "unchanged frames skip the", "whole visual pipeline (tiles)"],
+  ];
+  tiles.forEach(([num, l1, l2], i) => {
+    const x = 16 + (i % 3) * 380;
+    const y = 86 + Math.floor(i / 3) * 200;
+    el(svg, "rect", { x, y, width: 356, height: 176, rx: 10, fill: "#eef3f8",
+      stroke: "#d6dae0" });
+    el(svg, "text", { x: x + 24, y: y + 66, class: "title",
+      style: "font-size:34px; fill:#1f4e79" }, num);
+    el(svg, "text", { x: x + 24, y: y + 106, class: "lab" }, l1);
+    el(svg, "text", { x: x + 24, y: y + 130, class: "lab" }, l2);
+  });
+  el(svg, "text", { x: 12, y: 520, class: "note" },
+    "Degradation ladder: WebGPU -> single-thread WASM -> structure-only. Every rung ships and is tested; nothing assumes a GPU.");
+}
+document.body.setAttribute("data-ready", "1");
+</script></body></html>
