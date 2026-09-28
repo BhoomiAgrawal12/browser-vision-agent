@@ -8,6 +8,8 @@ import {
 import { PolicyEngine, type RawRegion } from "@kavach/core/policy";
 import {
   SCP_SCHEMA_ID,
+  isInvariantClass,
+  parseToken,
   type ActionPlan,
   type PlanStep,
   type PrivacyMode,
@@ -465,6 +467,13 @@ async function resolveStep(
           }
           resolved.text = answer;
           break;
+        }
+        const parsed = parseToken(token);
+        if (parsed && isInvariantClass(parsed.cls)) {
+          const approved = await confirmAction(
+            `The plan wants to re-enter your ${parsed.cls} into a field. Allow?`,
+          );
+          if (!approved) return "cancelled";
         }
         resolved.text = real;
         break;

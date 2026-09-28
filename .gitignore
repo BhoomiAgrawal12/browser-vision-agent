@@ -16,3 +16,7 @@ tools/deck/node_modules/
 tools/deck/mermaid.min.js
 tools/deck/diagrams.html
 tools/deck/.chrome/
+tools/deck/flow.html
+tools/deck/.chrome-flow/
+tools/deck/charts.html
+tools/deck/.chrome-charts/

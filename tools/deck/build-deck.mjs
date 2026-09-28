@@ -115,6 +115,7 @@ function tag(s, x, y, w, text, color = NAVY) {
   });
 }
 
+const g2 = (t) => ({ text: t, options: { fontFace: FONT, fontSize: 10.5, valign: "middle", color: "3D5A3D", bold: true } });
 const th = { fontFace: FONT, fontSize: 11, bold: true, color: "FFFFFF", fill: { color: NAVY }, valign: "middle" };
 const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
 
@@ -135,7 +136,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 0.85, y: 4.35, w: 11.6, h: 0.8, fontFace: FONT, fontSize: 14, color: "E8EEF5" },
   );
   s.addText(
-    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  193 automated tests",
+    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  194 automated tests",
     { x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
@@ -430,65 +431,95 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   ], { x: 7.85, y: 1.6, w: 5.0, size: 12 });
 }
 
-/* ============ 18. Measured privacy ============ */
+/* ============ 18. The benchmark ============ */
 {
   const s = slide();
-  title(s, "Measured, not promised", "RedactBench-Web: our benchmark, our numbers, as CI gates");
+  title(s, "The benchmark", "Every claim measured, every number a CI gate");
+
+  const tiles = [
+    ["100%", "micro precision, Shield", GREEN],
+    ["0", "invariant-class leaks", GREEN],
+    ["0", "false alarms on negatives", GREEN],
+    ["15.9 ms", "local pipeline p50 (175 ms budget)", NAVY],
+    ["10 / 10", "red team defences hold", NAVY],
+  ];
+  tiles.forEach(([num, cap, color], i) => {
+    const x = 0.55 + i * 2.47;
+    s.addShape("rect", { x, y: 1.32, w: 2.32, h: 1.0, fill: { color: BG_SOFT }, line: { color: RULE, width: 0.75 } });
+    s.addText(num, { x, y: 1.4, w: 2.32, h: 0.5, fontFace: FONT, fontSize: 21, bold: true, color, align: "center" });
+    s.addText(cap, { x: x + 0.06, y: 1.86, w: 2.2, h: 0.42, fontFace: FONT, fontSize: 8.8, color: SOFT, align: "center" });
+  });
+
+  s.addText("Detection quality (RedactBench-Web adversarial corpus, Shield tier)", {
+    x: 0.55, y: 2.55, w: 6.3, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: NAVY,
+  });
+  const g = (t) => ({ text: t, options: { ...td, color: GREEN, bold: true } });
   s.addTable(
     [
-      [
-        { text: "Mode", options: th }, { text: "Micro precision", options: th },
-        { text: "Micro recall", options: th }, { text: "Invariant-class leaks", options: th },
-        { text: "False alarms on negatives", options: th },
-      ],
-      [
-        { text: "Shield", options: { ...td, bold: true } }, { text: "100%", options: { ...td, bold: true, color: GREEN } },
-        { text: "91.4%", options: td }, { text: "0", options: { ...td, bold: true, color: GREEN } },
-        { text: "0", options: { ...td, bold: true, color: GREEN } },
-      ],
-      [
-        { text: "Fortress", options: { ...td, bold: true } }, { text: "97.1%", options: td },
-        { text: "94.3%", options: td }, { text: "0", options: { ...td, bold: true, color: GREEN } },
-        { text: "1 (an appointment date)", options: td },
-      ],
+      [{ text: "Class group", options: th }, { text: "Support", options: th },
+       { text: "Precision", options: th }, { text: "Recall", options: th }],
+      [{ text: "Checksummed IDs: Aadhaar, PAN, GSTIN", options: td }, { text: "14", options: td }, g("100%"), g("100%")],
+      [{ text: "Financial: card, IFSC, bank a/c, UPI, amounts", options: td }, { text: "13", options: td }, g("100%"), g("100%")],
+      [{ text: "Phone (IN), incl. spaced-digit evasion", options: td }, { text: "6", options: td }, g("100%"), g("100%")],
+      [{ text: "Visual: faces, QR, unexplained media", options: td }, { text: "8", options: td }, g("100%"), g("100%")],
+      [{ text: "Email (obfuscated [at]/[dot]: known gap)", options: td }, { text: "6", options: td }, { text: "100%", options: td }, { text: "83.3%", options: td }],
+      [{ text: "DOB (table-cell context: Fortress catches)", options: td }, { text: "2", options: td }, { text: "100%", options: td }, { text: "50%", options: td }],
+      [{ text: "Address in free text (NER tier pending)", options: td }, { text: "2", options: td }, { text: "100%", options: td }, { text: "50%", options: td }],
+      [{ text: "Names, PIN code (documented gaps)", options: td }, { text: "3", options: td }, { text: "n/a", options: td }, { text: "0%", options: td }],
+      [{ text: "Vehicle registration", options: td }, { text: "1", options: td }, g("100%"), g("100%")],
+      [{ text: "micro average", options: { ...td, bold: true } }, { text: "55", options: { ...td, bold: true } },
+       { text: "100%", options: { ...td, bold: true, color: GREEN } }, { text: "89.1%", options: { ...td, bold: true } }],
     ],
-    { x: 0.55, y: 1.5, w: 12.2, border: { pt: 0.5, color: RULE }, rowH: 0.55 },
+    { x: 0.55, y: 2.9, w: 6.3, colW: [3.6, 0.8, 0.95, 0.95], border: { pt: 0.5, color: RULE }, rowH: 0.4 },
   );
-  bullets(s, [
-    { t: "12-slice corpus: government, banking, payments, mail, commerce, social, healthcare, enterprise, hard cases. Synthetic personas only; UIDAI test ranges for Aadhaar.", },
-    { t: "Declared negatives make precision real: order IDs, toll-free helplines, appointment dates and employee IDs must NOT be masked, and are not.", },
-    { t: "Checksum-validated classes (Aadhaar, PAN, GSTIN, cards, IFSC): 100% precision and recall.", bold: true },
-    { t: "Known gaps are published, not hidden: free-text addresses and bare names await the NER tier. A CI test asserts the gap list is exactly that, so nothing regresses silently.", },
-    { t: "Reproduce: npm run bench", sub: true },
-  ], { y: 3.5, w: 12.2, size: 12.5 });
+  s.addText(
+    "Fortress mode: recall 94.5% (catches PIN codes and table-cell DOB) at the cost of one bounded false alarm. " +
+      "Adversarial negatives (en-dash lookalikes, Luhn-fail cards, spaced order ids, employee ids) must NOT be masked, and are not. Reproduce: npm run bench",
+    { x: 0.55, y: 6.6, w: 6.3, h: 0.75, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
+  );
+  s.addImage(fit(A("chart-latency.png"), 7.05, 2.35, 5.75, 4.6));
 }
 
-/* ============ 19. Latency ============ */
+/* ============ 19. Benchmark visuals ============ */
 {
   const s = slide();
-  title(s, "Fast enough to disappear", "Local pipeline: 16 ms measured against a 175 ms budget");
+  title(s, "The benchmark, continued", "Recall per class, and what the numbers protect");
+  s.addImage(fit(A("chart-recall.png"), 0.4, 1.3, 6.6, 5.7));
+
+  s.addText("Blur-recovery attack (metric: redaction precision)", {
+    x: 7.25, y: 1.45, w: 5.5, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: NAVY,
+  });
   s.addTable(
     [
-      [{ text: "Stage (real code paths)", options: th }, { text: "p50", options: th }, { text: "p95", options: th }],
-      [{ text: "Policy engine (full 12-capture corpus)", options: td }, { text: "0.32 ms", options: td }, { text: "0.47 ms", options: td }],
-      [{ text: "Egress gate: validate + tripwire + vault + guard", options: td }, { text: "0.14 ms", options: td }, { text: "0.29 ms", options: td }],
-      [{ text: "Tile hashing (dirty-region skip), 1024x580", options: td }, { text: "0.21 ms", options: td }, { text: "0.75 ms", options: td }],
-      [{ text: "Compose + pixel self-check (8 redactions)", options: td }, { text: "1.88 ms", options: td }, { text: "3.57 ms", options: td }],
-      [{ text: "Face preprocess (resize + normalize)", options: td }, { text: "1.01 ms", options: td }, { text: "1.13 ms", options: td }],
-      [{ text: "Face inference (UltraFace, single-thread WASM)", options: { ...td, bold: true } }, { text: "12.91 ms", options: { ...td, bold: true } }, { text: "13.22 ms", options: td }],
-      [{ text: "Face postprocess (filter + NMS)", options: td }, { text: "0.01 ms", options: td }, { text: "0.02 ms", options: td }],
+      [{ text: "Redaction", options: th }, { text: "Digits recovered", options: th }, { text: "Signal", options: th }],
+      [{ text: "Gaussian blur (sigma 14)", options: td }, { text: "16 / 16 (100%)", options: { ...td, bold: true, color: RED } }, { text: "fully recoverable", options: td }],
+      [{ text: "Kavach flat fill", options: td }, { text: "1 / 16 (chance)", options: { ...td, bold: true, color: GREEN } }, { text: "zero plaintext info", options: td }],
     ],
-    { x: 0.55, y: 1.5, w: 8.2, colW: [5.6, 1.3, 1.3], border: { pt: 0.5, color: RULE }, rowH: 0.45 },
+    { x: 7.25, y: 1.8, w: 5.5, colW: [2.1, 1.9, 1.5], border: { pt: 0.5, color: RULE }, rowH: 0.42 },
   );
-  s.addShape("rect", { x: 9.1, y: 1.6, w: 3.7, h: 2.6, fill: { color: BG_SOFT }, line: { color: RULE, width: 0.75 } });
-  s.addText([
-    { text: "16.2 ms", options: { fontSize: 40, bold: true, color: NAVY, breakLine: true } },
-    { text: "summed single-frame local p50, vs the 175 ms design budget. A 10x margin on the conservative WASM path; WebGPU is faster.", options: { fontSize: 11.5, color: INK } },
-  ], { x: 9.3, y: 1.8, w: 3.3, h: 2.3, fontFace: FONT, valign: "top" });
-  bullets(s, [
-    { t: "End-to-end latency is dominated by the remote planner, exactly as designed: the privacy layer costs milliseconds. Dirty-region tiling skips the whole visual pipeline on unchanged frames.", bold: true },
-    { t: "Reproduce on any machine: npm run bench:latency (writes machine context with the numbers).", },
-  ], { y: 5.35, w: 12.2, h: 1.6, size: 12 });
+
+  s.addText("Red team (report section 6.3, executable)", {
+    x: 7.25, y: 3.25, w: 5.5, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: NAVY,
+  });
+  s.addTable(
+    [
+      [{ text: "Attack", options: th }, { text: "Result", options: th }],
+      [{ text: "PII split across adjacent DOM nodes", options: td }, g2("caught, reassembled")],
+      [{ text: "Prompt injection in page content", options: td }, g2("quarantined")],
+      [{ text: "Compromised server names foreign element", options: td }, g2("plan rejected")],
+      [{ text: "PII smuggled via notes / history fields", options: td }, g2("gate blocks")],
+      [{ text: "Leaky packet sent straight to server", options: td }, g2("422, never processed")],
+      [{ text: "700-element packet / 1000-region page", options: td }, g2("capped, bounded")],
+      [{ text: "Checksum-invalid lookalikes (order ids)", options: td }, g2("NOT masked")],
+    ],
+    { x: 7.25, y: 3.6, w: 5.5, colW: [3.6, 1.9], border: { pt: 0.5, color: RULE }, rowH: 0.35 },
+  );
+  s.addText(
+    "Suite footprint: 194 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
+      "corpus: 18 captures, 55 annotated positives + adversarial lookalike negatives (unicode dashes, " +
+      "digit-spacing evasions, Hindi labels, table splits) · regenerate: npm run bench, npm run bench:latency",
+    { x: 7.25, y: 6.25, w: 5.5, h: 1.0, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
+  );
 }
 
 /* ============ 20. Engineering discipline ============ */
@@ -496,7 +527,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   const s = slide();
   title(s, "Engineering discipline", "The boundary is enforced by the build, not by promises");
   bullets(s, [
-    { t: "193 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
+    { t: "194 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
     { t: "check-egress fails the build if fetch or any network API appears outside three allowlisted transport modules.", },
     { t: "One zod schema package is imported by both client and server: the wire contract cannot drift.", },
     { t: "Model provenance is a test: the vendored ONNX bytes are hashed against the pinned SHA in CI.", },
@@ -530,13 +561,13 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
       [{ text: "Visual context accuracy (25%)", options: td },
        { text: "DOM+vision fusion, explained-area metric, re-grounding before every action", options: td }],
       [{ text: "PII recall + precision (20%)", options: td },
-       { text: "Measured: 100% precision, 0 invariant leaks, checksum-perfect Indian IDs, published gap list", options: td }],
+       { text: "Measured on an adversarial corpus: 100% precision, 0 invariant leaks, checksum-perfect IDs, published gap list", options: td }],
       [{ text: "Redaction precision (20%)", options: td },
        { text: "Fresh-canvas rule, pixel self-check before send, adaptive dilation, blur attack demo", options: td }],
       [{ text: "Client resources (20%)", options: td },
        { text: "1.27 MB model, dirty-region skip, tier ladder to zero-model Tier 0, single-thread WASM numbers", options: td }],
       [{ text: "End-to-end latency (15%)", options: td },
-       { text: "16.2 ms local p50 vs 175 ms budget, measured and reproducible", options: td }],
+       { text: "15.9 ms local p50 vs 175 ms budget, measured and reproducible", options: td }],
     ],
     { x: 0.55, y: 1.5, w: 12.2, colW: [3.6, 8.6], border: { pt: 0.5, color: RULE }, rowH: 0.52 },
   );

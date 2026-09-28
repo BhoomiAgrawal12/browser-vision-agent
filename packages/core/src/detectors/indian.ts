@@ -21,7 +21,9 @@ export interface Validation {
 const NOT_VALID: Validation = { valid: false };
 
 function digitsOf(text: string): string {
-  return text.replace(/[\s\-]/g, "");
+  // Strip spaces plus ASCII and unicode dashes (hyphen, en dash, em dash,
+  // figure dash): real pages and copied text use all of them.
+  return text.replace(/[\s\-\u2010-\u2015]/g, "");
 }
 
 /** Aadhaar: 12 digits, first digit 2-9, Verhoeff check digit. */
@@ -39,7 +41,8 @@ export function validateAadhaar(text: string): Validation {
 const PAN_HOLDER_TYPES = new Set(["A", "B", "C", "F", "G", "H", "J", "L", "P", "T"]);
 
 export function validatePan(text: string): Validation {
-  const t = text.trim().toUpperCase();
+  // Scanned cards and forms often space the segments: "ABCPE 1234 F".
+  const t = text.replace(/\s+/g, "").toUpperCase();
   if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(t)) return NOT_VALID;
   if (!PAN_HOLDER_TYPES.has(t[3]!)) return NOT_VALID;
   return { valid: true, strength: "structure", normalized: t };
