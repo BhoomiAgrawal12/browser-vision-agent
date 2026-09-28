@@ -58,4 +58,5 @@ Citation list for the Kavach SIH 2026 deck: every external model, runtime, algor
 - [PptxGenJS](https://github.com/gitbrent/PptxGenJS) - used for: generating the SIH pitch deck programmatically in `tools/deck`.
 - [Mermaid](https://mermaid.js.org/) - used for: rendering the architecture flowcharts embedded in the report and deck.
 - [puppeteer-core](https://pptr.dev/) - used for: headless Chrome rendering of Mermaid diagrams and the report PDF.
+- [happy-dom](https://github.com/capricorn86/happy-dom) - used for: DOM environment for the extension's perception and execution test suites
 - [marked](https://marked.js.org/) - used for: Markdown-to-HTML conversion in the report PDF build.
