@@ -414,7 +414,7 @@ Concretely, that means four commitments.
 
 ## 3.3 The name
 
-Working name: **Aegis** (a shield). Alternative if we want an Indian framing that will land well with ISRO mentors: **Kavach**, which means armour, and is already familiar in Indian technology circles. I lean **Kavach** for the pitch and `aegis` for the package names, because Kavach tells the story in one word.
+Current product name: **Dravika**.
 
 ---
 
@@ -653,7 +653,7 @@ This is the artefact the problem statement is really asking for. Here is the sch
 
 ```jsonc
 {
-  "schema": "kavach.scp/1.0",
+  "schema": "dravika.scp/1.0",
   "packet_id": "01JBQ7...",          // ULID, used for the receipt
   "captured_at_ms": 1758200000000,
   "policy": {
@@ -799,7 +799,7 @@ flowchart TB
 
 ```jsonc
 {
-  "schema": "kavach.plan/1.0",
+  "schema": "dravika.plan/1.0",
   "packet_id": "01JBQ7...",
   "reasoning_summary": "The Aadhaar field is already filled. Pincode is empty and required. Fill pincode, then the Proceed button becomes enabled.",
   "steps": [
@@ -1468,8 +1468,8 @@ Every outbound request produces a receipt. The user can open a panel and see the
     "self_check_detail": "no text detected inside any redacted region"
   },
   "models": {
-    "detector": "kavach-elem-v0.3-int8",
-    "ner": "kavach-pii-in-v0.2-int8",
+    "detector": "dravika-elem-v0.3-int8",
+    "ner": "dravika-pii-in-v0.2-int8",
     "face": "blazeface-short-v1",
     "backend": "webgpu"
   },
@@ -1651,7 +1651,7 @@ Then unplug the network, switch the server to the local Ollama instance, and run
 
 ## 8.5 The one paragraph pitch
 
-> Kavach is a browser extension that gives an AI agent eyes without giving it your secrets. A small vision model and the page's own structure run entirely on your machine, working together to build a complete map of your screen. Anything that cannot be positively identified as safe gets destroyed before it leaves, not blurred, destroyed. What the server receives is a formal, versioned description of your screen where every private value has been replaced by a typed placeholder, so the server knows there is an Aadhaar number in field four without ever knowing what it is. It plans, sends back an action naming an element rather than a coordinate, and the client verifies the element still exists before touching it. In Wireframe mode, not a single pixel leaves the machine and the agent still completes the task. Every request produces a signed receipt showing exactly what left, what was withheld, and how long every stage took. We measured all of it on a 300 screen corpus we built, on three classes of hardware, including a laptop with no GPU.
+> Dravika is a browser extension that gives an agent page structure without giving it raw form answers. Its on-device face detector and structural parser build a sanitized packet; unsupported image and document content remains masked. The planner proposes element-ID actions, and the extension verifies each action against the current page. In Wireframe mode no screen pixels are sent. Privacy receipts and the local audit describe what was checked and what was withheld. The measured structure-tier corpus and browser tests are reported separately from future model and media work.
 
 ## 8.6 Risk register
 
@@ -1687,7 +1687,7 @@ These are the sentences that make a panel sit up. Use them.
 ## 9.1 Repository layout
 
 ```
-kavach/
+dravika/
 ├─ packages/
 │  ├─ core/                    # zero browser APIs, pure TypeScript, fully unit tested
 │  │  ├─ schema/               # SCP and Plan schemas, zod or similar, versioned

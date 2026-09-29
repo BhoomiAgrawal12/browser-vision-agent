@@ -92,7 +92,7 @@ This file records concise summaries of project work. Add new entries at the top 
 
 - Reviewed the repository architecture, runtime flow, and current implementation status.
 - Reviewed `Reform.md`, including the Phase 0 stabilization requirements and later image/PDF roadmap.
-- Defined the recommended Phase 0 demonstration around the Jan Seva form and Kavach side panel rather than a fabricated dashboard.
+- Defined the recommended Phase 0 demonstration around the Jan Seva form and Dravika side panel rather than a fabricated dashboard.
 - Recorded the current feature description, PPT guidance, architecture context, and system requirements in the local ignored `output.md` file.
 
 ### Local Demo

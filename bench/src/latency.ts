@@ -106,7 +106,7 @@ const results: { name: string; p50: number; p95: number; n: number }[] = [];
   const sanitized = policy.sanitize(CORPUS[0]!.regions, "shield", "benchmark");
   const packet = packetFor(sanitized);
   const plan = {
-    schema: "kavach.plan/1.0",
+    schema: "dravika.plan/1.0",
     packet_id: packet.packet_id,
     reasoning_summary: "done",
     steps: [{ action: "done", requires_confirmation: false }],

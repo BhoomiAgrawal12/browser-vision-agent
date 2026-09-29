@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const configuredPath = process.env["KAVACH_CONFIG"];
+const configuredPath = process.env["DRAVIKA_CONFIG"];
 const configFiles = configuredPath
   ? [resolve(ROOT, configuredPath)]
   : [resolve(ROOT, ".env"), resolve(ROOT, ".env.local")];
@@ -46,7 +46,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 child.on("error", (error) => {
-  console.error(`kavach local server failed to start: ${error.message}`);
+  console.error(`dravika local server failed to start: ${error.message}`);
   process.exitCode = 1;
 });
 

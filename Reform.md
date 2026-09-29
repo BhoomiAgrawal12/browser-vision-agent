@@ -1,16 +1,16 @@
 
-# Kavach Reform and Upgrade Plan
+# Dravika Reform and Upgrade Plan
 
 ## 1. Purpose
 
-Kavach should become more than a privacy-preserving browser agent for HTML
+Dravika should become more than a privacy-preserving browser agent for HTML
 forms. It should demonstrate that a browser agent can safely work with web
 pages, images, screenshots, PDFs, and related media without exposing the
 user's private content to the planner service.
 
 The central promise is:
 
-> Kavach protects both what the user can see and what the file secretly
+> Dravika protects both what the user can see and what the file secretly
 > contains.
 
 The project must prove this with a working demo, visible security checks, real
@@ -35,11 +35,33 @@ The repository already provides a useful foundation:
 - Re-grounding checks that stop actions when the page changes.
 - Tests, red-team cases, and benchmark infrastructure.
 
-The current demo is primarily Tier 0, with a verified Tier 1 UltraFace face
-detector now running locally through ONNX Runtime Web (WebGPU first, WASM
-fallback) when visual capture is available. It is strongest for HTML structure
-and form values; arbitrary images, OCR, scanned PDFs, PDF metadata, hidden
-content, and media-specific PII detection are not yet complete.
+The form agent is primarily Tier 0 with a verified Tier 1 UltraFace detector
+through ONNX Runtime Web. A separate local media inspector now renders images
+and PDF pages, runs bundled English OCR and barcode recognition, inspects
+metadata and outputs a verified, fully masked raster. This conservative
+representation deliberately contains no original image detail; selective
+safe-region release and specialised signature/document models are not claimed.
+
+### Current Implementation Status
+
+- **Phase 0:** `npm test`, all workspace typechecks, both extension builds, and
+  isolated Chromium form fixtures pass. The supplied Microsoft Forms page was inspected
+  read-only. Installed-extension Chrome/Firefox smoke checks remain blocked by
+  this environment's managed Chrome policy and failed Firefox launch.
+- **Phase 1:** bundled, SHA-pinned UltraFace and English OCR; JPEG/PNG/WebP
+  metadata inspection, flat-fill re-encoding, QR/barcode scan, and pixel
+  verification pass browser tests. Specialised ID/signature models remain.
+- **Phase 2:** local PDF rendering, metadata inspection, text extraction,
+  OCR, hidden-content discard, and page-image output pass browser tests,
+  including a synthetic PDF with an embedded attachment, annotation, action,
+  hidden text and scanned identity-card image. Real installed-extension
+  cross-engine validation remains.
+- **Phase 3:** visible-page text and OCR are combined into local region
+  descriptors; fully masked output is measured. Semantic document
+  understanding and scanned-PDF recall evaluation remain.
+- **Phase 4:** refreshed RedactBench results, browser fixtures and a regenerated
+  renamed deck/evidence kit exist; installed-browser validation and a
+  multi-device matrix remain.
 
 ## 3. Upgrade Goals
 
@@ -329,7 +351,7 @@ The benchmark must distinguish between:
 
 ## 11. Implementation Phases
 
-### Phase 0: Stabilize the existing product
+### Phase 0: Stabilize the existing product (substantially implemented)
 
 Phase 0 is the local-first, deterministic browser-agent foundation. The model
 backend is replaceable and never receives raw browser values or direct browser
@@ -359,18 +381,33 @@ control.
   and the light, spacious green-and-white sidebar UI.
 - [x] Make unknown or unsupported media fail closed until a trusted vision pass
   explains it.
+- [x] Keep user-provided answers in process memory across same-origin form
+  navigation, with wipe boundaries for tab, origin, extension, and explicit
+  stop.
+- [x] Match explicit form values supplied in the task prompt locally, seed the
+  in-memory field keys, and replace those values before planner sanitization.
+- [x] Prevent valid filled fields from being overwritten, stop on no progress,
+  detect native and ARIA validation failures, and verify form state locally.
+- [x] Use one accessible-label resolver for perception and execution, including
+  `label for` controls, with a direct perceive-to-reground regression test.
+- [x] Validate the configured planner path with synthetic/manual packets and
+  payload-free `packet_received`, `planner_fallback`, and `plan_sent` logs.
+- [x] Document that a configured planner endpoint is remote and optional; it is
+  not the local vision model and must not receive real user data.
 
 #### Current Tasks
 
-- [ ] Verify the complete Tier 0 loop in supported Chrome and Firefox builds.
-- [ ] Complete the user flow for routine form filling: request missing private
-  values locally, fill safe fields automatically, re-perceive after changes,
-  and require explicit approval before submission or other risky actions.
-- [ ] Run configured-planner end-to-end testing with local credentials and
-  confirm `packet_received`, `planner_fallback`, and `plan_sent.planner_used`
-  logs without exposing endpoint or credential details.
-- [ ] Keep end-to-end fixtures synthetic and document clearly that any remote
-  test endpoint is not a local model and must not receive real user data.
+- [x] Exercise the built Chrome panel and content bundles in isolated Chromium
+  on Google- and Microsoft-style forms, including prompt reuse, sequential
+  filling, delayed date validation, choices and submit consent.
+- [x] Inspect the supplied live Microsoft Forms page in a read-only browser
+  run; all seven visible question controls were identified. No submission was
+  attempted on the real page.
+- [x] Wire the security checklist to live gate/audit events; waiting, passed,
+  blocked and sent states replace the hard-coded all-green indicators.
+- [x] Report the provider that successfully initialized the verified face
+  detector (`webgpu` or `wasm`) in visual packets, and `none` for structure-only.
+- [ ] Validate actual installed Chrome and Firefox extensions end to end.
 
 #### Phase 0 Decisions
 
@@ -383,44 +420,91 @@ control.
   until a trusted local detector explains its pixels, including same-origin
   media. This intentionally increases unexplained-region and over-mask metrics
   on real pages; exceptions require detector evidence and updated measurements.
+- **Prompt-supplied values:** only values explicitly associated with currently
+  perceived fillable fields are matched. The raw value is retained in the
+  in-memory vault and replaced before the task intent reaches the gate or
+  planner; ambiguous field mentions are not a source of automatic values.
 
-### Phase 1: Images and metadata
+### Phase 1: Images and metadata (partially implemented)
 
-- Add image metadata extraction and stripping.
-- Add a vetted OCR model and at least one visual detector.
-- Connect detections to policy and coordinate fusion.
-- Add media fixtures and pixel-level leak tests.
-- Add the security status panel and image demonstration.
+The first local visual detector is implemented, but this is not complete image
+privacy support.
 
-### Phase 2: PDF page safety
+#### Completed
 
-- Render PDF pages locally.
-- Add PDF metadata inspection and removal.
-- Sanitize rendered pages with the image pipeline.
-- Add tests for hidden content and embedded files.
-- Add the PDF demonstration.
+- [x] Add the MIT-licensed UltraFace RFB-320 model with pinned bytes, SHA-256,
+  provenance, and licence documentation.
+- [x] Bundle the model and ONNX Runtime Web assets in Chrome and Firefox
+  builds, with extension CSP support for WebAssembly.
+- [x] Run the face detector locally over captured frames and pass detections
+  through policy, typed `PII:FACE` redaction, fresh-canvas composition, and
+  pixel self-checking.
+- [x] Add preprocessing, postprocessing, NMS, model-integrity, and real blank
+  frame inference tests.
 
-### Phase 3: Local PDF understanding
+#### Remaining
 
-- Add local text extraction.
-- Combine extracted text, OCR, and visual detections.
-- Preserve only safe summaries or sanitized page images.
-- Measure performance on text PDFs and scanned PDFs.
+- [x] Inspect JPEG/PNG/WebP metadata locally; decode and encode into a fresh
+  PNG without source metadata, verified against embedded PNG text fixtures.
+- [x] Bundle pinned English OCR, WASM runtime, QR/barcode reader, and
+  UltraFace. All page pixels are masked when classification is uncertain.
+- [x] Express OCR/PDF text as local regions in the same pixel coordinates,
+  pass them through policy and discard the raw strings before transmission.
+- [x] Add synthetic image/PDF fixtures and an encoded-pixel self-check in a
+  real browser plus a before/after preview in the panel.
+- [ ] Add validated identity-document and signature-specific detectors. The
+  current identity label is an OCR keyword cue only; all page pixels remain
+  fully masked, so no visual document/signature classifier is claimed.
 
-### Phase 4: Hardening and presentation
+### Phase 2: PDF page safety (conservative implementation)
 
-- Run the complete attack suite.
-- Collect benchmark numbers.
-- Test Chrome and Firefox.
-- Prepare fixed demo fixtures and a recovery path if live services fail.
-- Build slides around evidence, not claims.
+- [x] Render selected PDF pages locally through a bundled PDF.js worker.
+- [x] Report metadata field names and discard the original PDF, metadata,
+  JavaScript, attachments, annotations, layers and revisions from the new PNG.
+- [x] Send only the verified, fully masked raster and typed text-region map.
+- [x] Add a PDF containing author metadata and hidden text to the browser
+  outbound privacy test; the original and hidden text stay local.
+- [x] Add a browser-generated PDF fixture with an embedded file, text
+  annotation, JavaScript action, hidden text, and a scanned identity-card
+  image; verify none of those source values reach the gate/server.
+- [ ] Test the PDF fixture against an installed extension on multiple browser
+  engines.
+
+### Phase 3: Local PDF understanding (safe visible-page subset)
+
+- [x] Extract visible PDF text locally and combine it with local OCR and
+  barcode recognition, then use typed policy placeholders and a masked image.
+- [x] Measure synthetic image/PDF processing time in the browser runner and
+  label a scanned-card fixture with Aadhaar, email, phone and PAN values.
+- [ ] Evaluate OCR recall/false positives on a representative labelled
+  scanned-PDF corpus. Selective safe-region sharing stays disabled until
+  pixel-level tests justify it.
+
+### Phase 4: Hardening and presentation (partially implemented)
+
+#### Completed
+
+- [x] Add automated red-team, scoring, and latency benchmark infrastructure.
+- [x] Add the SIH presentation deck and its reproducible asset generator.
+
+#### Remaining
+
+- [x] Run existing red-team/egress tests and two deterministic browser form
+  scenarios; image, metadata and PDF fixtures pass the live local gate/server.
+- [x] Regenerate honest RedactBench results and record media processing times.
+- [x] Include fixed form/image/PDF fixtures and heuristic fallback in tests;
+  see `docs/IMPLEMENTATION-EVIDENCE.md`.
+- [ ] Collect real installed-extension Chrome and Firefox/device-matrix
+  measurements, including model memory and scanned-PDF recall.
+- [x] Regenerate the final deck and evidence PDF after the latest media and
+  benchmark measurements; label remaining unmeasured areas as roadmap.
 
 ## 12. Presentation Structure
 
 The presentation should follow this story:
 
 1. Browser agents need context, but raw context contains private data.
-2. Kavach keeps perception and sanitization local.
+2. Dravika keeps perception and sanitization local.
 3. The server receives a formal sanitized packet, not a raw page or file.
 4. Every outbound request passes multiple independent checks.
 5. Images and PDFs are sanitized for both visible content and hidden metadata.
@@ -435,6 +519,12 @@ Original input -> local detection -> sanitized preview -> security checklist
 ```
 
 ## 13. Definition of Done
+
+Current state: form/egress, local image inspection, and conservative PDF page
+handling pass browser-level fixtures. The release is not considered complete
+until Firefox/installed-extension checks, scanned-document benchmarks and
+specialised visual classifiers are verified. See the evidence file for exact
+scope and measured numbers.
 
 The reform is complete when:
 
@@ -455,7 +545,7 @@ The reform is complete when:
 Do not claim universal privacy recall, perfect OCR, or complete support for
 every PDF feature. The reliable product promise is narrower:
 
-> Kavach locally sanitizes supported web and media content, verifies the
+> Dravika locally sanitizes supported web and media content, verifies the
 > outbound representation, blocks anything that fails verification, and
 > gives the user evidence of what the planner was allowed to see.
 

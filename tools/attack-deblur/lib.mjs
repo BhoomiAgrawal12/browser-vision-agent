@@ -1,5 +1,5 @@
 /**
- * The blur-recovery attack, self-contained. Demonstrates why Kavach uses
+ * The blur-recovery attack, self-contained. Demonstrates why Dravika uses
  * destructive flat fills instead of blur: for content drawn from a small
  * known alphabet (digits, in a known font), Gaussian blur preserves
  * enough signal to recover the plaintext by rendering every candidate,
@@ -111,7 +111,7 @@ export function gaussianBlur(img, sigma) {
   return { width, height, data: out };
 }
 
-/** Flat fill a region: what Kavach actually does. */
+/** Flat fill a region: what Dravika actually does. */
 export function flatFill(img, box, value = 0.07) {
   const out = { width: img.width, height: img.height, data: img.data.slice() };
   for (let y = box.y; y < box.y + box.h; y++) {

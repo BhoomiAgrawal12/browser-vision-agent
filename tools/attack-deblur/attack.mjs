@@ -6,7 +6,7 @@
  *   node tools/attack-deblur/attack.mjs --self-test  assert the outcome
  *
  * A card-like number is rendered, blurred heavily, then recovered by
- * brute force over the digit alphabet. The same attack against Kavach's
+ * brute force over the digit alphabet. The same attack against Dravika's
  * flat fill recovers nothing but noise.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -40,7 +40,7 @@ const blurResult = recoverDigits(blurred, cells, SCALE, PAD, SIGMA);
 const blurAcc = accuracy(blurResult.recovered, TRUTH);
 const blurMargin = blurResult.margins.reduce((a, b) => a + b, 0) / cells.length;
 
-// Attack 2: Kavach's destructive flat fill over the whole number.
+// Attack 2: Dravika's destructive flat fill over the whole number.
 const region = {
   x: cells[0].x,
   y: 0,
@@ -64,7 +64,7 @@ console.log(`  recovered:       ${blurResult.recovered}`);
 console.log(`  digit accuracy:  ${(blurAcc * 100).toFixed(0)}%`);
 console.log(`  decision margin: ${blurMargin.toFixed(3)} (higher = clearer signal)`);
 console.log("");
-console.log("FLAT FILL (what Kavach sends):");
+console.log("FLAT FILL (what Dravika sends):");
 console.log(`  recovered:       ${fillResult.recovered}`);
 console.log(`  digit accuracy:  ${(fillAcc * 100).toFixed(0)}% (chance level is 10%)`);
 console.log(

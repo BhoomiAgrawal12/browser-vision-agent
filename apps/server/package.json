@@ -1,7 +1,7 @@
 {
   "name": "@kavach/server",
   "version": "0.1.0",
-  "description": "Kavach planner service: validates Sanitized Context Packets, re-scans them, plans against the redaction legend, and guards its own output.",
+  "description": "Dravika planner service: validates Sanitized Context Packets, re-scans them, plans against the redaction legend, and guards its own output.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {

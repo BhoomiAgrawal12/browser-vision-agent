@@ -13,7 +13,7 @@ and then recovered by coordinate descent: hold the estimate of every other
 digit fixed, render each candidate in place, blur identically, compare over
 the cell plus its blur halo. Three sweeps recover all sixteen digits.
 
-The same attack against the flat fill Kavach actually sends recovers a
+The same attack against the flat fill Dravika actually sends recovers a
 constant string at chance-level accuracy: every cell ranks the candidates
 identically because the fill carries zero information about what was under it.
 
@@ -23,7 +23,7 @@ Outputs:
 |---|---|
 | `1-original.png` | the rendered card number |
 | `2-blurred.png` | what a blur-based "redaction" ships |
-| `3-flat-fill.png` | what Kavach ships |
+| `3-flat-fill.png` | what Dravika ships |
 | `4-recovered-from-blur.png` | the attacker's reconstruction from the blur |
 
 No dependencies; the PNG encoder is 60 lines over node:zlib.

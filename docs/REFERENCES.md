@@ -1,6 +1,6 @@
 # References
 
-Citation list for the Kavach SIH 2026 deck: every external model, runtime, algorithm, prior-art project, security paper, and tool the project uses or is directly built on.
+Citation list for the Dravika SIH 2026 deck: every external model, runtime, algorithm, prior-art project, security paper, and tool the project uses or is directly built on.
 
 ## A. On-device model and weights
 
