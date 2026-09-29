@@ -25,11 +25,11 @@ let body = marked.parse(md);
 // Wrap tables so wide ones can shrink instead of overflowing the page.
 body = body.replace(/<table>/g, '<div class="tablewrap"><table>').replace(/<\/table>/g, '</table></div>');
 
-const mermaidJs = readFileSync('mermaid.min.js', 'utf8');
+const mermaidJs = readFileSync(new URL('./node_modules/mermaid/dist/mermaid.min.js', import.meta.url), 'utf8');
 
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>SIH 2026 On-Device Vision Agent Report</title>
+<title>Dravika Product and Technical Report</title>
 <style>
   @page { size: A4 portrait; margin: 16mm 14mm 18mm 14mm; }
   @page wide { size: A4 landscape; margin: 12mm 12mm 14mm 12mm; }

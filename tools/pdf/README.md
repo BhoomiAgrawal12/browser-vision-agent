@@ -4,23 +4,19 @@ The PDF is generated from the Markdown source, so edit the Markdown and re-run t
 Mermaid diagrams are rendered by a real headless Chrome, which is why the output is
 vector rather than screenshots.
 
-## One time setup
+## Setup
 
 ```
-cd tools
-npm init -y
-npm install marked@14 puppeteer-core@23
-curl -sL -o mermaid.min.js https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
+npm ci --prefix tools/pdf
 ```
 
-`mermaid.min.js` is inlined into the intermediate HTML, so the render does not need
-a network connection once it is downloaded.
+Mermaid is bundled from the pinned package and inlined into the intermediate HTML.
 
 ## Build
 
 ```
-node build.mjs "../SIH2026 On-Device Vision Agent Report.md" report.html
-node print.mjs  "$(pwd)/report.html" "../SIH2026 On-Device Vision Agent Report.pdf"
+node tools/pdf/build.mjs docs/REPORT.md /tmp/dravika-report.html
+node tools/pdf/print.mjs /tmp/dravika-report.html docs/REPORT.pdf
 ```
 
 ## Notes
@@ -31,4 +27,4 @@ node print.mjs  "$(pwd)/report.html" "../SIH2026 On-Device Vision Agent Report.p
   on its own A4 landscape page. Without that, wide flowcharts shrink to unreadable labels.
 - `print.mjs` starts Chrome with a debugging port, waits for `body[data-ready="1"]`
   (set once every diagram has rendered), then prints with a page-number footer.
-- Chrome path is hardcoded in `print.mjs` for macOS. Change `CHROME` for another OS.
+- Set `DRAVIKA_BROWSER` when Chrome/Brave is not found at a standard path.

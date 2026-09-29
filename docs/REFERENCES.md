@@ -1,6 +1,6 @@
 # References
 
-Citation list for the Dravika SIH 2026 deck: every external model, runtime, algorithm, prior-art project, security paper, and tool the project uses or is directly built on.
+Citation list for the Dravika product presentation: external models, runtimes, algorithms, prior-art projects, security papers, and tools used by or related to the project.
 
 ## A. On-device model and weights
 
@@ -37,7 +37,7 @@ Citation list for the Dravika SIH 2026 deck: every external model, runtime, algo
 - [Nanobrowser](https://github.com/nanobrowser/nanobrowser) - used for: studying an open-source in-extension multi-agent browser automation design.
 - [ScreenSpot-Pro benchmark](https://github.com/likaixin2000/ScreenSpot-Pro-GUI-Grounding) - used for: the GUI-grounding benchmark framing our vision-accuracy expectations.
 - [UI-TARS paper](https://arxiv.org/pdf/2501.12326) - used for: the state of the art in end-to-end GUI agent models we deliberately do not compete with.
-- [privacy-focused-browser-agent](https://github.com/Rohinth-S/privacy-focused-browser-agent) - used for: the nearest prior art to this exact problem statement.
+- [privacy-focused-browser-agent](https://github.com/Rohinth-S/privacy-focused-browser-agent) - used for: a closely related privacy-focused browser agent.
 
 ## E. Security research informing the design
 
@@ -55,7 +55,7 @@ Citation list for the Dravika SIH 2026 deck: every external model, runtime, algo
 - [Vitest](https://vitest.dev/) - used for: the unit and property test runner across all packages.
 - [esbuild](https://esbuild.github.io/) - used for: bundling the extension for Chrome MV3 and Firefox from one codebase.
 - [tsx](https://tsx.is/) - used for: running the TypeScript planner server and bench harness directly under Node.
-- [PptxGenJS](https://github.com/gitbrent/PptxGenJS) - used for: generating the SIH pitch deck programmatically in `tools/deck`.
+- [PptxGenJS](https://github.com/gitbrent/PptxGenJS) - used for: generating the product presentation programmatically in `tools/deck`.
 - [Mermaid](https://mermaid.js.org/) - used for: rendering the architecture flowcharts embedded in the report and deck.
 - [puppeteer-core](https://pptr.dev/) - used for: headless Chrome rendering of Mermaid diagrams and the report PDF.
 - [happy-dom](https://github.com/capricorn86/happy-dom) - used for: DOM environment for the extension's perception and execution test suites

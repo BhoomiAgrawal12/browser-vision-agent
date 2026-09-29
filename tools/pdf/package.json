@@ -1,0 +1,15 @@
+{
+  "name": "dravika-report-pdf",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:html": "node build.mjs ../../docs/REPORT.md /tmp/dravika-report.html",
+    "print": "node print.mjs /tmp/dravika-report.html ../../docs/REPORT.pdf"
+  },
+  "dependencies": {
+    "marked": "14.1.3",
+    "mermaid": "11.12.0",
+    "puppeteer-core": "23.11.1"
+  }
+}

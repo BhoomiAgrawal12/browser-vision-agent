@@ -1,16 +1,20 @@
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const htmlPath = process.argv[2];
-const outPath  = process.argv[3];
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const CHROME = process.env.DRAVIKA_BROWSER ?? ['/usr/bin/google-chrome', '/opt/brave.com/brave-origin/brave', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync);
+if (!CHROME) throw new Error('Set DRAVIKA_BROWSER to a Chrome/Brave executable.');
+const htmlPath = resolve(process.argv[2]);
+const outPath = resolve(process.argv[3]);
 const PORT = 9333;
 
 const chrome = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
   `--remote-debugging-port=${PORT}`,
-  '--user-data-dir=./cp-print',
+  `--user-data-dir=${resolve(HERE, 'chrome-profile-print')}`,
   'about:blank',
 ], { stdio: 'ignore', detached: false });
 
@@ -25,7 +29,7 @@ if (!browser) { chrome.kill(); throw new Error('could not connect to Chrome'); }
 
 const page = await browser.newPage();
 page.setDefaultTimeout(300000);
-await page.goto(`file://${htmlPath}`, { waitUntil: 'load', timeout: 300000 });
+await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load', timeout: 300000 });
 console.log('loaded, waiting for mermaid...');
 await page.waitForSelector('body[data-ready="1"]', { timeout: 300000 });
 
@@ -42,7 +46,7 @@ await sleep(1500);
 const footer = `
 <div style="width:100%;font-size:7pt;color:#8a9099;font-family:-apple-system,Helvetica,Arial,sans-serif;
             padding:0 14mm;display:flex;justify-content:space-between;">
-  <span>SIH 2026 &middot; On-Device Visual Perception for Light-weight Browser Agents</span>
+  <span>Dravika &middot; Product and Technical Report</span>
   <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
 </div>`;
 
