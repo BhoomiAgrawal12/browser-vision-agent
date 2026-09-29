@@ -36,11 +36,11 @@ The repository already provides a useful foundation:
 - Tests, red-team cases, and benchmark infrastructure.
 
 The form agent is primarily Tier 0 with a verified Tier 1 UltraFace detector
-through ONNX Runtime Web. A separate local media inspector now renders images
-and PDF pages, runs bundled English OCR and barcode recognition, inspects
-metadata and outputs a verified, fully masked raster. This conservative
-representation deliberately contains no original image detail; selective
-safe-region release and specialised signature/document models are not claimed.
+through ONNX Runtime Web. A separate local media inspector renders images and
+PDF pages, runs bundled English OCR, face and barcode recognition, and removes
+container metadata. Supported images preserve context outside detected
+high-risk regions; PDFs and unlocalized identity/signature content stay
+fully masked. Detection recall is not universal and is reported as a limitation.
 
 ### Current Implementation Status
 
@@ -51,15 +51,18 @@ safe-region release and specialised signature/document models are not claimed.
   this environment's managed Chrome policy and failed Firefox launch.
 - **Phase 1:** bundled, SHA-pinned UltraFace and English OCR; JPEG/PNG/WebP
   metadata inspection, flat-fill re-encoding, QR/barcode scan, and pixel
-  verification pass browser tests. Specialised ID/signature models remain.
+  verification pass browser tests. Detected image regions are selectively
+  masked; PDFs and unlocalized identity/signature pages stay fully masked.
+  Specialist ID/signature models and representative recall tests remain.
 - **Phase 2:** local PDF rendering, metadata inspection, text extraction,
   OCR, hidden-content discard, and page-image output pass browser tests,
   including a synthetic PDF with an embedded attachment, annotation, action,
   hidden text and scanned identity-card image. Real installed-extension
   cross-engine validation remains.
 - **Phase 3:** visible-page text and OCR are combined into local region
-  descriptors; fully masked output is measured. Semantic document
-  understanding and scanned-PDF recall evaluation remain.
+  descriptors; selective image redaction and full-page PDF masking are covered
+  by synthetic browser fixtures. Semantic document understanding and
+  representative scanned-PDF recall evaluation remain.
 - **Phase 4:** refreshed RedactBench results, browser fixtures and a regenerated
   renamed deck/evidence kit exist; installed-browser validation and a
   multi-device matrix remain.
@@ -457,15 +460,17 @@ privacy support.
 - [x] Add synthetic image/PDF fixtures and an encoded-pixel self-check in a
   real browser plus a before/after preview in the panel.
 - [ ] Add validated identity-document and signature-specific detectors. The
-  current identity label is an OCR keyword cue only; all page pixels remain
-  fully masked, so no visual document/signature classifier is claimed.
+  current identity label is an OCR keyword cue only. Detected text/face regions
+  are masked, while unlocalized identity/signature pages remain fully masked;
+  no dedicated visual document/signature classifier is claimed.
 
 ### Phase 2: PDF page safety (conservative implementation)
 
 - [x] Render selected PDF pages locally through a bundled PDF.js worker.
 - [x] Report metadata field names and discard the original PDF, metadata,
   JavaScript, attachments, annotations, layers and revisions from the new PNG.
-- [x] Send only the verified, fully masked raster and typed text-region map.
+- [x] Send only the verified, freshly encoded raster and typed text-region map;
+  PDFs use full-page masking and supported images use detected region masks.
 - [x] Add a PDF containing author metadata and hidden text to the browser
   outbound privacy test; the original and hidden text stay local.
 - [x] Add a browser-generated PDF fixture with an embedded file, text
@@ -481,8 +486,8 @@ privacy support.
 - [x] Measure synthetic image/PDF processing time in the browser runner and
   label a scanned-card fixture with Aadhaar, email, phone and PAN values.
 - [ ] Evaluate OCR recall/false positives on a representative labelled
-  scanned-PDF corpus. Selective safe-region sharing stays disabled until
-  pixel-level tests justify it.
+  scanned-PDF corpus. Expand selective safe-region sharing only after
+  pixel-level tests justify the additional regions.
 
 ### Phase 4: Hardening and presentation (partially implemented)
 

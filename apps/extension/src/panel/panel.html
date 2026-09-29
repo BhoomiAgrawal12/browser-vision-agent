@@ -86,7 +86,7 @@
 
   <section class="server-view">
     <h2>Local image / PDF inspection</h2>
-    <p class="audit-note">English OCR and PDF text inspection. Pages are fully masked by default; unidentified faces, documents and signatures stay withheld. The original preview stays local.</p>
+    <p class="audit-note">Local OCR, face and barcode checks. Detected image regions are flat-filled; PDFs and images with unlocalized sensitive content stay fully masked. The original file stays local. Detection can miss content.</p>
     <div class="media-controls">
       <div class="media-field">
         <label for="media-file">Image or PDF file</label>
@@ -99,7 +99,7 @@
           <input id="media-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf">
         </label>
       </div>
-      <div class="media-page-row">
+      <div class="media-page-row" id="media-page-row" hidden>
         <div>
           <label for="media-page">PDF page</label>
           <p class="media-field-hint">Choose a page from 1 to 50</p>
@@ -120,7 +120,7 @@
       </figure>
       <figure>
         <figcaption>Verified sanitized page</figcaption>
-        <img id="media-sanitized" alt="Verified fully masked page" hidden>
+        <img id="media-sanitized" alt="Verified locally sanitized page" hidden>
       </figure>
     </div>
     <h3 class="audit-subhead">Local audit &amp; server-visible packet</h3>

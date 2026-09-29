@@ -413,11 +413,14 @@ export class EgressGate {
       throw error;
     }
     const issues = guardPlanAgainstPacket(plan, packet);
-    const planSerialized = JSON.stringify(plan);
-    const planFindings = this.opts.registry.analyze(planSerialized, {
+    // The packet id is machine-generated and already bound to this request by
+    // guardPlanAgainstPacket. Skip it during prose PII scanning so UUID digits
+    // cannot be mistaken for a phone/account value.
+    const planScannable = JSON.stringify({ ...plan, packet_id: undefined });
+    const planFindings = this.opts.registry.analyze(planScannable, {
       threshold: TRIPWIRE_THRESHOLD,
     });
-    const planVaultLeaks = this.opts.vault.findLeaks(planSerialized);
+    const planVaultLeaks = this.opts.vault.findLeaks(planScannable);
     if (issues.length > 0 || planFindings.length > 0 || planVaultLeaks.length > 0) {
       await this.audit({
         stage: "response",

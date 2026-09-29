@@ -80,14 +80,17 @@ Node 20+ required.
 ## Local image/PDF inspection
 
 The side panel accepts a local JPEG, PNG, WebP or PDF file (up to 20 MiB, PDF
-pages 1–50). Press **Inspect locally** to see the original page alongside a
-verified **fully masked** raster and a value-free audit of metadata field names,
-OCR/text-region counts, and discarded PDF features. English OCR and model
-assets are bundled and SHA-pinned; an integrity or pixel check failure blocks
-the media send. **Send sanitized page** sends only the new PNG plus redacted
-region descriptors through the existing gate. The original file, extracted
-text and metadata values never go to the planner. Full masking prioritizes
-privacy over understanding photographs or scanned text.
+pages 1–50). Press **Inspect locally** to see the original beside a freshly
+encoded preview with locally detected PII, faces and barcodes flat-filled.
+PDF pages and images with unlocalized identity/signature content remain fully
+masked. Shield mode can preserve medium-risk names while Aadhaar, phone, email
+and other high-risk regions are flat-filled. A value-free audit lists metadata
+fields, detected classes and PDF features discarded. English OCR and vision
+assets are SHA-pinned; integrity or pixel-check failures block sending.
+**Send sanitized page** sends only the new PNG and typed descriptors through
+the gate. Local detectors can miss content, so review the preview before
+sending. The original file, extracted OCR text and metadata values never go to
+the planner.
 
 Run `npm run test:browser` for the isolated Chromium form and media pipeline
 checks. See [implementation evidence](docs/IMPLEMENTATION-EVIDENCE.md) for

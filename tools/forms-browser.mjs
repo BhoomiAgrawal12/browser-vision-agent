@@ -94,6 +94,8 @@ try {
     await panel.goto(base + "/panel.html");
     await panel.waitForFunction(() => document.querySelector("#planner-status")?.textContent?.includes("Remote planner advisory"));
     assert.match(await panel.locator("#planner-status").innerText(), /form actions guarded locally/);
+    assert.equal(await panel.locator("#media-page-row").isHidden(), true, "page selection is only shown for PDFs");
+    await panel.locator("#media-page-row").evaluate((node) => { node.hidden = false; }); // Exercise the automatically detected PDF layout.
     await panel.locator("#media-file-name").evaluate((node) => { node.textContent = "very-long-selected-document-name-with-private-but-synthetic-test-content-2026-09.pdf"; });
     await panel.locator("#packet-view").evaluate((node) => { node.textContent = JSON.stringify({ packet: "x".repeat(900) }, null, 2); });
     for (const width of [360, 320, 280]) {
