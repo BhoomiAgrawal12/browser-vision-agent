@@ -1,6 +1,6 @@
 # Deck generator
 
-Builds `docs/Dravika-SIH2026-Deck.pptx` (22 slides, 16:9) with every image
+Builds `docs/Dravika-Product-Deck.pptx` (22 slides, 16:9) with every image
 generated from the repo itself.
 
 ## Setup
@@ -13,7 +13,7 @@ npm ci --prefix tools/deck
 
 ```
 node gen-assets.mjs    # renders diagrams + prototype screenshots into assets/
-node build-deck.mjs    # writes docs/Dravika-SIH2026-Deck.pptx
+node build-deck.mjs    # writes docs/Dravika-Product-Deck.pptx
 ```
 
 `gen-assets.mjs` drives headless Chrome to render nine flowcharts from the

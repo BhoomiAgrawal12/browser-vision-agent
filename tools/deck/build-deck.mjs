@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build the Dravika SIH deck: docs/Dravika-SIH2026-Deck.pptx
+ * Build the Dravika product deck: docs/Dravika-Product-Deck.pptx
  * Everything embedded is generated from the repo itself: diagrams from the
  * report's mermaid sources, screenshots of the running prototype, images
  * from the blur attack, and the measured numbers from bench/.
@@ -45,7 +45,7 @@ const pptx = new Pptx();
 pptx.defineLayout({ name: "WIDE", width: W, height: H });
 pptx.layout = "WIDE";
 pptx.author = "Team Dravika";
-pptx.title = "Dravika: On-Device Visual Perception for Light-weight Browser Agents";
+pptx.title = "Dravika: Privacy-First Browser Assistance";
 
 pptx.defineSlideMaster({
   title: "BODY",
@@ -131,8 +131,8 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     x: 0.85, y: 3.25, w: 11.6, h: 0.5, fontFace: FONT, fontSize: 20, color: "C9D8E8", italic: true,
   });
   s.addText(
-    "SIH 2026  |  On-Device Visual Perception for Light-weight Browser Agents\n" +
-      "Problem statement by ISRO, Space Applications Centre (SAC), Ahmedabad",
+    "Privacy-preserving browser assistance\n" +
+      "Local perception, guarded form completion, and safe media inspection",
     { x: 0.85, y: 4.35, w: 11.6, h: 0.8, fontFace: FONT, fontSize: 14, color: "E8EEF5" },
   );
   s.addText(
@@ -151,23 +151,23 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { t: "passwords, Aadhaar and PAN numbers, faces, bank balances all leave the machine", sub: true },
     { t: "unacceptable for government, banking, healthcare and enterprise use", sub: true },
     { t: "Local machines cannot host a full reasoning pipeline; the cloud brain is still needed.", },
-    { t: "The PS asks for the bridge: a browser-local vision agent that sanitizes everything sensitive BEFORE any network request, feeding a redaction-aware server.", bold: true },
+    { t: "Dravika bridges local perception and useful assistance: sensitive context is sanitized before any planner request.", bold: true },
   ], { w: 7.1 });
-  s.addText("Evaluation weights", {
+  s.addText("Product guarantees", {
     x: 8.0, y: 1.5, w: 4.7, h: 0.3, fontFace: FONT, fontSize: 12, bold: true, color: NAVY,
   });
   s.addTable(
     [
-      [{ text: "Metric", options: th }, { text: "Weight", options: th }],
-      [{ text: "Accuracy of visual context", options: td }, { text: "25%", options: td }],
-      [{ text: "PII detection recall + precision", options: td }, { text: "20%", options: td }],
-      [{ text: "Precision of redaction", options: td }, { text: "20%", options: td }],
-      [{ text: "Client resource utilisation", options: td }, { text: "20%", options: td }],
-      [{ text: "End-to-end latency", options: td }, { text: "15%", options: td }],
+      [{ text: "Boundary", options: th }, { text: "Behavior", options: th }],
+      [{ text: "Local perception", options: td }, { text: "Page structure and vision run in the browser", options: td }],
+      [{ text: "Private values", options: td }, { text: "Replaced by typed tokens before planning", options: td }],
+      [{ text: "Unknown media", options: td }, { text: "Fully masked or blocked", options: td }],
+      [{ text: "Remote planning", options: td }, { text: "Receives sanitized context only", options: td }],
+      [{ text: "Browser actions", options: td }, { text: "Re-grounded and confirmed when risky", options: td }],
     ],
     { x: 8.0, y: 1.9, w: 4.7, colW: [3.5, 1.2], border: { pt: 0.5, color: RULE }, rowH: 0.42 },
   );
-  s.addText("40% of the marks are privacy quality. Both are measurable. We measured them.", {
+  s.addText("Privacy checks run before every planner request and browser action.", {
     x: 8.0, y: 4.9, w: 4.7, h: 0.9, fontFace: FONT, fontSize: 12.5, italic: true, color: RED,
   });
 }
@@ -551,28 +551,28 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   );
 }
 
-/* ============ 21. Why we win ============ */
+/* ============ 21. Evidence ============ */
 {
   const s = slide();
-  title(s, "Why this wins", "Every evaluation metric has evidence behind it");
+  title(s, "Measured behavior", "Product claims are tied to reproducible evidence");
   s.addTable(
     [
-      [{ text: "Metric", options: th }, { text: "Our evidence", options: th }],
-      [{ text: "Visual context accuracy (25%)", options: td },
+      [{ text: "Capability", options: th }, { text: "Evidence", options: th }],
+      [{ text: "Visual context", options: td },
        { text: "DOM+vision fusion, explained-area metric, re-grounding before every action", options: td }],
-      [{ text: "PII recall + precision (20%)", options: td },
+      [{ text: "PII detection", options: td },
        { text: "Measured on an adversarial corpus: 100% precision, 0 invariant leaks, checksum-perfect IDs, published gap list", options: td }],
-      [{ text: "Redaction precision (20%)", options: td },
+      [{ text: "Redaction", options: td },
        { text: "Fresh-canvas rule, pixel self-check before send, adaptive dilation, blur attack demo", options: td }],
-      [{ text: "Client resources (20%)", options: td },
+      [{ text: "Client resources", options: td },
        { text: "1.27 MB model, dirty-region skip, tier ladder to zero-model Tier 0, single-thread WASM numbers", options: td }],
-      [{ text: "End-to-end latency (15%)", options: td },
+      [{ text: "Local latency", options: td },
        { text: "71.2 ms local p50 vs 175 ms budget, measured and reproducible", options: td }],
     ],
     { x: 0.55, y: 1.5, w: 12.2, colW: [3.6, 8.6], border: { pt: 0.5, color: RULE }, rowH: 0.52 },
   );
   bullets(s, [
-    { t: "Standouts no other team will have: Wireframe mode (provable zero-pixel egress), the live blur-recovery attack, privacy receipts with hash proofs, checksum-validated Indian identifier pack, and a benchmark whose numbers are CI gates.", bold: true },
+    { t: "Product differentiators: Wireframe mode (provable zero-pixel egress), the live blur-recovery attack, privacy receipts with hash proofs, checksum-validated Indian identifier pack, and a benchmark whose numbers are CI gates.", bold: true },
     { t: "Roadmap: text-region detection (DBNet) through the same pinned-model path, NER tier for names and addresses, Devanagari text masking, NPU via WebNN, Tier 3 local VLM.", },
   ], { y: 4.95, w: 12.2, size: 12.5 });
 }
@@ -590,11 +590,11 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
       "Run it: npm install && npm test  |  node bench/demo/serve.mjs  |  npm run dev",
     { x: 0.85, y: 4.4, w: 11.6, h: 1.2, fontFace: FONT, fontSize: 14, color: "C9D8E8", lineSpacingMultiple: 1.4 },
   );
-  s.addText("Dravika  |  SIH 2026  |  ISRO Space Applications Centre problem statement", {
+  s.addText("Dravika  |  Privacy-first browser assistance", {
     x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
 
-const OUT = join(ROOT, "docs", "Dravika-SIH2026-Deck.pptx");
+const OUT = join(ROOT, "docs", "Dravika-Product-Deck.pptx");
 await pptx.writeFile({ fileName: OUT });
 console.log("wrote", OUT);

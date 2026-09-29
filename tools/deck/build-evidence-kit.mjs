@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Build docs/Evaluation-Evidence-Kit.pdf: for each of the five SIH scoring
- * parameters, every asset option (image, table, chart, stat line, live demo
+ * Build docs/Evaluation-Evidence-Kit.pdf: for five product capability areas,
+ * every asset option (image, table, chart, stat line, live demo
  * moment) the team can drop into the deck, honestly tagged READY (measured,
  * in repo) or ROADMAP (planned, not yet measured).
  */
@@ -87,7 +87,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
 </style></head><body>
 
 <h1>Dravika: Evaluation Evidence Kit</h1>
-<p>Every asset the deck can use, organised by the five SIH scoring parameters. Each option is
+<p>Every asset the deck can use, organised by five product capability areas. Each option is
 tagged <b>READY</b> (measured, generated from the repo, drop-in) or <b>ROADMAP</b> (planned,
 say it as future work, never as a result). Images live in
 <code>tools/deck/assets/</code>; every number regenerates from
@@ -102,7 +102,7 @@ charts on one slide.
 
 <!-- ================= METRIC 1 ================= -->
 <div class="metric">
-<div class="metric-head"><span class="weight">25%</span>
+<div class="metric-head"><span class="weight">01</span>
 <h2>1. Accuracy of visual context from screen</h2>
 <p>Does the agent truly understand what is on screen: elements, roles, states, geometry?</p></div>
 
@@ -137,7 +137,7 @@ ${opt("STAT", "ROADMAP", "Option D: explained-area fraction and grounding accura
 
 <!-- ================= METRIC 2 ================= -->
 <div class="metric">
-<div class="metric-head"><span class="weight">20%</span>
+<div class="metric-head"><span class="weight">02</span>
 <h2>2. Recall and precision for detection of sensitive / PII data</h2>
 <p>Catch everything sensitive without crying wolf on lookalikes.</p></div>
 
@@ -177,7 +177,7 @@ ${opt("CHART", "ROADMAP", "Option E: ablation chart (regex only vs +checksums vs
 
 <!-- ================= METRIC 3 ================= -->
 <div class="metric">
-<div class="metric-head"><span class="weight">20%</span>
+<div class="metric-head"><span class="weight">03</span>
 <h2>3. Precision of redaction</h2>
 <p>Masks in the right place, tight, and genuinely unrecoverable.</p></div>
 
@@ -219,7 +219,7 @@ ${opt("STAT", "ROADMAP", "Option E: pixel coverage / over-mask / IoU numbers",
 
 <!-- ================= METRIC 4 ================= -->
 <div class="metric">
-<div class="metric-head"><span class="weight">20%</span>
+<div class="metric-head"><span class="weight">04</span>
 <h2>4. Client-side resource utilisation</h2>
 <p>Does it run on an ordinary machine without making the fans scream?</p></div>
 
@@ -249,7 +249,7 @@ ${opt("TABLE", "ROADMAP", "Option D: three device classes (low / mid / high)",
 
 <!-- ================= METRIC 5 ================= -->
 <div class="metric">
-<div class="metric-head"><span class="weight">15%</span>
+<div class="metric-head"><span class="weight">05</span>
 <h2>5. Overall end-to-end latency of the provided task</h2>
 <p>How long from ask to done?</p></div>
 
@@ -268,7 +268,7 @@ ${opt("TABLE", "READY", "Option B: end-to-end budget vs measured",
 ${opt("IMAGE", "READY", "Option C: the panel with live timings",
   img(IMG.panel,
     "proto-panel.png: the activity log prints per-step timings during the demo, so latency is " +
-    "observed by the judges, not claimed.", "72mm"))}
+    "observed directly rather than asserted.", "72mm"))}
 
 ${opt("STAT", "ROADMAP", "Option D: wall-clock on the 12 benchmark tasks",
   `<p>Task-level end-to-end timings (cold and warm) across the report's 12 task set, per mode.
