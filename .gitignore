@@ -11,6 +11,7 @@ tools/pdf/report.html
 tools/pdf/chrome-profile*/
 tools/pdf/cp-print/
 tools/attack-deblur/out/
+output.md
 tools/deck/node_modules/
 tools/deck/mermaid.min.js
 tools/deck/diagrams.html

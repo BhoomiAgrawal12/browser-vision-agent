@@ -17,7 +17,6 @@ import {
   type TaskHistoryStep,
 } from "@kavach/core/schema";
 import { Vault } from "@kavach/core/vault";
-import type { RawRegion } from "@kavach/core/policy";
 import { cssToImage, type CoordinateSpace } from "@kavach/core/fusion";
 import {
   SelfCheckFailed,
@@ -62,6 +61,16 @@ function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   line.textContent = text;
   logEl.append(line);
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function renderAuditEvent(event: EgressAuditEvent): void {
+  const metrics = event.metrics
+    ? ` (${Object.entries(event.metrics)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(", ")})`
+    : "";
+  const kind = event.outcome === "blocked" || event.outcome === "error" ? "err" : "dim";
+  log(`  gate.${event.stage}: ${event.outcome} - ${event.detail ?? "check complete"}${metrics}`, kind);
 }
 
 /** Full receipt history for audit export. Tokens and hashes only. */

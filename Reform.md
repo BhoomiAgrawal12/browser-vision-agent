@@ -35,10 +35,11 @@ The repository already provides a useful foundation:
 - Re-grounding checks that stop actions when the page changes.
 - Tests, red-team cases, and benchmark infrastructure.
 
-The current demo is primarily Tier 0. It is strongest for HTML structure and
-form values. The visual pipeline exists, but the real on-device model registry
-is still empty. Arbitrary images, scanned PDFs, PDF metadata, hidden content,
-and media-specific PII detection are not yet complete.
+The current demo is primarily Tier 0, with a verified Tier 1 UltraFace face
+detector now running locally through ONNX Runtime Web (WebGPU first, WASM
+fallback) when visual capture is available. It is strongest for HTML structure
+and form values; arbitrary images, OCR, scanned PDFs, PDF metadata, hidden
+content, and media-specific PII detection are not yet complete.
 
 ## 3. Upgrade Goals
 
@@ -370,6 +371,18 @@ control.
   logs without exposing endpoint or credential details.
 - [ ] Keep end-to-end fixtures synthetic and document clearly that any remote
   test endpoint is not a local model and must not receive real user data.
+
+#### Phase 0 Decisions
+
+- **Placeholder ownership:** a placeholder is bound to the element that owns it
+  in the sanitized packet. The action guard rejects cross-field reuse and
+  overwrites of existing values. A task that needs the same value entered into
+  another field must use `user_prompt`, keeping the value in the browser and
+  making the human-controlled re-entry explicit.
+- **Fail-closed media:** Tier 0 masks every image, canvas, video, and iframe
+  until a trusted local detector explains its pixels, including same-origin
+  media. This intentionally increases unexplained-region and over-mask metrics
+  on real pages; exceptions require detector evidence and updated measurements.
 
 ### Phase 1: Images and metadata
 

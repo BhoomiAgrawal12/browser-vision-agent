@@ -92,7 +92,9 @@ function buildSystemPrompt(packet: SanitizedContextPacket): string {
     "requires_confirmation true. Never invent private values. A field whose",
     "state.filled is true or whose value kind is placeholder/filled already",
     "contains a valid user value: do not ask for it again or overwrite it unless the",
-    "task explicitly requests replacement. Ask at most once per target in one",
+    "task explicitly requests replacement. Placeholder values may only be used",
+    "with their owning element; use user_prompt for any other field. Ask at most",
+    "once per target in one",
     "plan. If state.invalid is true, ask the user to correct that same field",
     "before moving on, and put navigation or submit clicks after data-entry steps.",
   ].join("\n");
@@ -177,6 +179,8 @@ export function shouldUseConfiguredPlanner(
   deterministicPlan: ActionPlanType,
   config: PlannerConfig,
 ): boolean {
+  // Auto mode keeps routine field filling deterministic; use the configured
+  // model when the heuristic needs context or reports no useful next action.
   if (config.mode === "heuristic") return false;
   if (config.mode === "model") return true;
   if (!isSimpleDeterministicPlan(deterministicPlan)) return true;
