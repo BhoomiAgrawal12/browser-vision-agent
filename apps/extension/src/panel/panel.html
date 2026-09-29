@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kavach</title>
+  <title>Dravika</title>
   <link rel="stylesheet" href="panel.css">
 </head>
 <body>
   <header class="app-header">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">K</span>
+      <span class="brand-mark" aria-hidden="true">D</span>
       <div>
-        <h1>Kavach</h1>
+        <h1>Dravika</h1>
         <p class="tagline">Private browsing assistant</p>
       </div>
     </div>
@@ -39,16 +39,20 @@
     <div class="stat"><span id="stat-blocked">0</span><label>redactions</label></div>
     <div class="stat"><span id="stat-sent">0</span><label>requests sent</label></div>
     <div class="stat"><span id="stat-bytes">0</span><label>bytes out</label></div>
-    <div class="stat"><span id="stat-leaks">0</span><label>raw PII egress</label></div>
+    <div class="stat"><span id="stat-leaks">0</span><label>blocked requests</label></div>
   </section>
 
   <section class="security-status">
     <h2>Security status</h2>
     <div class="checks">
-      <div class="check ok" id="check-local"><span>PRIVATE</span> Perception stays in this browser</div>
-      <div class="check ok" id="check-vault"><span>SESSION</span> The vault is cleared with this tab</div>
-      <div class="check ok" id="check-gate"><span>PROTECTED</span> Every outbound packet is checked</div>
-      <div class="check ok" id="check-receipts"><span>TRACEABLE</span> Sends leave a privacy receipt</div>
+      <div class="check waiting" id="check-schema">SCHEMA: WAITING</div>
+      <div class="check waiting" id="check-tripwire">TRIPWIRE: WAITING</div>
+      <div class="check waiting" id="check-vault">VAULT: WAITING</div>
+      <div class="check waiting" id="check-visual">VISUAL: WAITING</div>
+      <div class="check waiting" id="check-size">SIZE: WAITING</div>
+      <div class="check waiting" id="check-rate_limit">RATE LIMIT: WAITING</div>
+      <div class="check waiting" id="check-receipt">RECEIPT: WAITING</div>
+      <div class="check waiting" id="check-network">NETWORK: WAITING</div>
     </div>
   </section>
 
@@ -58,9 +62,14 @@
   </section>
 
   <section class="server-view">
-    <h2>Shared with the planner <span class="hint">sanitized only</span></h2>
-    <img id="visual-preview" alt="the exact redacted frame sent to the server" hidden>
-    <pre id="packet-view">nothing sent yet</pre>
+    <h2>Planner packet &amp; redaction audit</h2>
+    <p class="audit-note"><code>transmission</code> shows whether the packet was prepared, sent, or blocked. Only <code>server_packet</code> crosses the gate; the audit stays local and omits field values.</p>
+    <div id="visual-preview-state" class="visual-preview-state" data-preview-state="empty">
+      <img id="visual-preview" alt="Verified redacted frame sent to the planner" hidden>
+      <p id="visual-preview-empty" class="preview-message">No redacted frame is available yet.</p>
+      <p id="visual-preview-error" class="preview-message preview-error" role="alert" hidden></p>
+    </div>
+    <pre id="packet-view" class="packet-code" tabindex="0" aria-label="Planner packet and local redaction audit">nothing sent yet</pre>
   </section>
 
   <section class="receipts-section">
@@ -69,6 +78,49 @@
       <button id="export-receipts" class="small" disabled>Export JSON</button>
     </div>
     <div id="receipts" class="receipts"></div>
+  </section>
+
+  <section class="server-view">
+    <h2>Local image / PDF inspection</h2>
+    <p class="audit-note">English OCR and PDF text inspection. Pages are fully masked by default; unidentified faces, documents and signatures stay withheld. The original preview stays local.</p>
+    <div class="media-controls">
+      <div class="media-field">
+        <label for="media-file">Image or PDF file</label>
+        <label class="media-file-picker" for="media-file">
+          <span class="media-file-trigger">Choose file</span>
+          <span class="media-file-details">
+            <span id="media-file-name" class="media-file-name">No file selected</span>
+            <span id="media-file-type" class="media-file-type" hidden></span>
+          </span>
+          <input id="media-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf">
+        </label>
+      </div>
+      <div class="media-page-row">
+        <div>
+          <label for="media-page">PDF page</label>
+          <p class="media-field-hint">Choose a page from 1 to 50</p>
+        </div>
+        <input id="media-page" type="number" min="1" max="50" value="1" inputmode="numeric">
+      </div>
+      <div class="media-actions" aria-label="Media inspection actions">
+        <button id="media-inspect">Inspect locally</button>
+        <button id="media-send" disabled>Send sanitized page</button>
+        <button id="media-clear" class="media-clear">Clear</button>
+      </div>
+    </div>
+    <p id="media-status" class="media-status" role="status" aria-live="polite">No media selected.</p>
+    <div class="media-previews">
+      <figure>
+        <figcaption>Local original · never sent</figcaption>
+        <img id="media-original" alt="Local original preview — never sent" hidden>
+      </figure>
+      <figure>
+        <figcaption>Verified sanitized page</figcaption>
+        <img id="media-sanitized" alt="Verified fully masked page" hidden>
+      </figure>
+    </div>
+    <h3 class="audit-subhead">Local audit &amp; server-visible packet</h3>
+    <pre id="media-report" class="packet-code media-report" tabindex="0" aria-label="Local media audit and sanitized packet"></pre>
   </section>
 
   <dialog id="ask">
@@ -94,5 +146,6 @@
 
   <script src="ort/ort.min.js"></script>
   <script src="panel.js"></script>
+  <script type="module" src="media.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 {
-  "name": "kavach",
+  "name": "dravika",
   "private": true,
   "version": "0.1.0",
   "description": "Privacy-preserving on-device vision agent for browsers. A local eye, a remote brain, and an unbreakable filter in between.",
@@ -13,11 +13,13 @@
     "dev": "npm run build && node tools/start-local.mjs",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run check:egress && npm run test --workspaces --if-present",
+    "test:browser": "npm run test:browser -w @kavach/extension && node --import tsx/esm tools/media-browser.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:egress": "node tools/check-egress.mjs",
     "demo:deblur": "node tools/attack-deblur/attack.mjs",
     "demo:deblur:selftest": "node tools/attack-deblur/attack.mjs --self-test",
-    "bench": "npm run bench -w @kavach/bench"
+    "bench": "npm run bench -w @kavach/bench",
+    "bench:latency": "npm run bench:latency -w @kavach/bench"
   },
   "engines": {
     "node": ">=20"

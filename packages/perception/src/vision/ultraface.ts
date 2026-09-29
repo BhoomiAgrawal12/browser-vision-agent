@@ -28,6 +28,7 @@ export interface FaceDetection {
 }
 
 export interface FaceModel {
+  backend?: "webgpu" | "wasm";
   /** Run the graph on a [1,3,240,320] CHW float tensor. */
   run(input: Float32Array): Promise<{ scores: Float32Array; boxes: Float32Array }>;
 }

@@ -1,0 +1,7 @@
+[
+  {"path":"media/eng.traineddata.gz","source":"@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz","bytes":2952873,"sha256":"45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91","license":"MIT"},
+  {"path":"media/tesseract-core-lstm.wasm.js","source":"tesseract.js-core/tesseract-core-lstm.wasm.js","bytes":3896484,"sha256":"eef5f8b2f8e20e150680b20adaec4a60babafee3adbe8a94583c81fee46e8680","license":"Apache-2.0"},
+  {"path":"media/tesseract-core-lstm.wasm","source":"tesseract.js-core/tesseract-core-lstm.wasm","bytes":2855361,"sha256":"66b17df6e20c5329a17ffa9c202a47eaa3e32500b253d4c7f38e7f2bc01457c3","license":"Apache-2.0"},
+  {"path":"media/worker.min.js","source":"tesseract.js/dist/worker.min.js","bytes":111307,"sha256":"576b7df7e3393e137e51849357c9adb53fe7ac1bb69bfa06cf3d61520f182c6d","license":"Apache-2.0"},
+  {"path":"media/pdf.worker.min.mjs","source":"pdfjs-dist/build/pdf.worker.min.mjs","bytes":1265413,"sha256":"8ab0e5e30031b4a06ecfddd5ae9562f0227f830ee7ec9ed1a968b134243d2386","license":"Apache-2.0"}
+]

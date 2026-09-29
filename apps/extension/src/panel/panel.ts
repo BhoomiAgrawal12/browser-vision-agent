@@ -5,9 +5,11 @@ import {
   type EgressAuditEvent,
   type PrivacyReceipt,
 } from "@kavach/core/gate";
+import { extractPromptAnswers, type PromptAnswer, type PromptField } from "@kavach/core/prompt";
 import { PolicyEngine, type RawRegion } from "@kavach/core/policy";
 import {
   SCP_SCHEMA_ID,
+  PLAN_SCHEMA_ID,
   isInvariantClass,
   parseToken,
   type ActionPlan,
@@ -25,9 +27,10 @@ import {
   type CaptureFrame,
   type SanitizedVisual,
 } from "@kavach/perception/browser";
-import { diffTiles, hashTiles, type RedactionRect } from "@kavach/perception";
+import { type RedactionRect } from "@kavach/perception";
 import { detectFaces, type FaceModel } from "@kavach/perception/vision";
 import { createOrtFaceModel, type OrtNamespace } from "@kavach/perception/vision/ort";
+import { defaultModelHost, ULTRAFACE_MANIFEST } from "@kavach/perception/models";
 import {
   sendToTab,
   type ExecuteResponse,
@@ -35,6 +38,9 @@ import {
   type PerceiveResponse,
   type ResolvedStep,
 } from "../shared/messages.js";
+import { promptAnswerForField, promptMemoryKeys, rememberPromptAnswers } from "./prompt-memory.js";
+import { buildLocalRedactionAudit } from "./redaction-audit.js";
+import { createVisualPreview } from "./visual-preview.js";
 import { DEFAULT_SERVER_URL, makeTransport } from "../transport.js";
 
 /**
@@ -44,7 +50,7 @@ import { DEFAULT_SERVER_URL, makeTransport } from "../transport.js";
  */
 
 const POLICY_VERSION = "2026.09.1";
-const MAX_ITERATIONS = 6;
+const MAX_ITERATIONS = 30;
 
 /* UI plumbing */
 
@@ -54,6 +60,14 @@ const packetView = $("packet-view");
 const receiptsEl = $("receipts");
 const runBtn = $<HTMLButtonElement>("run");
 const stopBtn = $<HTMLButtonElement>("stop");
+const visualPreview = createVisualPreview({
+  frame: $("visual-preview-state"),
+  image: $<HTMLImageElement>("visual-preview"),
+  empty: $("visual-preview-empty"),
+  error: $("visual-preview-error"),
+});
+let packetPreview: Record<string, unknown> | null = null;
+let previewPacketId: string | null = null;
 
 function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   const line = document.createElement("div");
@@ -64,6 +78,11 @@ function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
 }
 
 function renderAuditEvent(event: EgressAuditEvent): void {
+  const check = document.getElementById(`check-${event.stage}`);
+  if (check) {
+    check.className = `check ${event.outcome === "blocked" || event.outcome === "error" ? "bad" : "ok"}`;
+    check.textContent = `${event.stage.toUpperCase()}: ${event.outcome.toUpperCase()}`;
+  }
   const metrics = event.metrics
     ? ` (${Object.entries(event.metrics)
         .map(([key, value]) => `${key}=${String(value)}`)
@@ -88,7 +107,7 @@ function exportReceipts(): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `kavach-receipts-${Date.now()}.json`;
+  a.download = `dravika-receipts-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -120,12 +139,15 @@ function renderReceipt(r: PrivacyReceipt): void {
   receiptsEl.prepend(div);
 }
 
-function ask(promptText: string): Promise<string | null> {
+function ask(promptText: string, inputType = "text"): Promise<string | null> {
   const dialog = $<HTMLDialogElement>("ask");
   $("ask-text").textContent = promptText;
   const input = $<HTMLInputElement>("ask-input");
+  input.type = ["date", "time", "month", "number", "email", "tel", "password"].includes(inputType) ? inputType : "text";
+  dialog.returnValue = "cancel";
   input.value = "";
   dialog.showModal();
+  input.focus();
   return new Promise((resolve) => {
     dialog.addEventListener(
       "close",
@@ -138,6 +160,7 @@ function ask(promptText: string): Promise<string | null> {
 function confirmAction(text: string): Promise<boolean> {
   const dialog = $<HTMLDialogElement>("confirm");
   $("confirm-text").textContent = text;
+  dialog.returnValue = "cancel";
   dialog.showModal();
   return new Promise((resolve) => {
     dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok"), {
@@ -164,6 +187,10 @@ const gate = new EgressGate({
   audit: { append: renderAuditEvent },
   receipts: {
     append: (r) => {
+      if (packetPreview && previewPacketId === r.packet_id) {
+        packetPreview.transmission = r.outcome;
+        packetView.textContent = JSON.stringify(packetPreview, null, 2);
+      }
       receiptHistory.push(r);
       $<HTMLButtonElement>("export-receipts").disabled = false;
       renderReceipt(r);
@@ -211,23 +238,26 @@ async function verifyFormState(tabId: number): Promise<void> {
 
 type PacketElement = SanitizedContextPacket["elements"][number];
 
-function promptMemoryKeys(
-  packet: SanitizedContextPacket,
-  element: PacketElement,
-  promptText?: string,
-): string[] {
-  const label = (element.label ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 160);
-  const hint = element.evidence.find((item) => item.startsWith("structural:hint=")) ?? "";
-  const peers = packet.elements.filter((candidate) => {
-    return candidate.role === element.role && candidate.label === element.label;
-  });
-  const ordinal = Math.max(0, peers.findIndex((candidate) => candidate.id === element.id));
-  const keys = [`field|${element.role}|${hint}|${label}|${ordinal}`];
-  if (promptText?.trim()) {
-    const prompt = promptText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 240);
-    keys.push(`prompt|${element.role}|${prompt}`);
-  }
-  return keys;
+function filledElementCount(elements: PacketElement[]): number {
+  return elements.filter((element) => {
+    return (
+      element.state?.filled === true ||
+      element.value?.kind === "placeholder" ||
+      element.value?.kind === "filled"
+    );
+  }).length;
+}
+
+const PROMPT_FIELD_ROLES = new Set(["textbox", "password", "combobox", "listbox"]);
+
+function promptFields(regions: RawRegion[]): PromptField[] {
+  return regions
+    .filter((region) => PROMPT_FIELD_ROLES.has(region.role))
+    .map((region) => ({
+      id: region.id,
+      label: region.label,
+      ...(region.structuralClass ? { structuralClass: region.structuralClass } : {}),
+    }));
 }
 
 function buildPacket(
@@ -243,7 +273,7 @@ function buildPacket(
     captured_at_ms: Date.now(),
     policy: { mode, policy_version: POLICY_VERSION, invariant_floor: true },
     device: {
-      backend: "none",
+      backend: visual ? visionBackend : "none",
       tier: visual ? "T1" : "T0",
       viewport: perception.meta.viewport,
     },
@@ -278,6 +308,7 @@ function buildPacket(
    degrades to structural perception and fail-closed media masking. */
 
 let faceModelPromise: Promise<FaceModel | null> | null = null;
+let visionBackend: "none" | "webgpu" | "wasm" = "none";
 
 function faceModel(): Promise<FaceModel | null> {
   if (!faceModelPromise) {
@@ -290,10 +321,12 @@ function faceModel(): Promise<FaceModel | null> {
         return null;
       }
       try {
-        const model = await createOrtFaceModel(ortNs, "models/ultraface-rfb-320.onnx", {
+        const bytes = await defaultModelHost().load({ ...ULTRAFACE_MANIFEST, url: chrome.runtime.getURL("models/ultraface-rfb-320.onnx") });
+        const model = await createOrtFaceModel(ortNs, bytes, {
           wasmPaths: "ort/",
           executionProviders: ["webgpu", "wasm"],
         });
+        visionBackend = model.backend ?? "none";
         log("face detector ready (ultraface-rfb-320, on-device)", "dim");
         return model;
       } catch (e) {
@@ -329,6 +362,7 @@ async function detectFaceRegions(
   if (!model) return [];
   const started = performance.now();
   const faces = await detectFaces(frame.image, model);
+  visionBackend = model.backend ?? "none";
   const elapsed = Math.round(performance.now() - started);
   if (faces.length > 0) {
     log(`  ${faces.length} face(s) detected on-device in ${elapsed} ms`, "ok");
@@ -337,7 +371,7 @@ async function detectFaceRegions(
   }
   const cssFactor = perception.meta.viewport.dpr * frame.scale;
   return faces.map((face, i) => ({
-    id: `e${perception.regions.length + i + 1}`,
+    id: `e${Math.max(0, ...perception.regions.map((r) => Number(r.id.slice(1)))) + i + 1}`,
     role: "image" as const,
     label: null,
     box: [
@@ -356,23 +390,12 @@ async function detectFaceRegions(
 
 /* The visual pipeline: dirty-tile reuse, compose, self-check. */
 
-let lastTiles: Uint32Array | null = null;
-let lastVisual: SanitizedVisual | null = null;
-
 async function buildVisual(
   frame: CaptureFrame,
   perception: PerceiveResponse,
   sanitized: ReturnType<PolicyEngine["sanitize"]>,
 ): Promise<SanitizedVisual | null> {
   try {
-    const tiles = hashTiles(frame.image);
-    const diff = diffTiles(lastTiles, tiles);
-    lastTiles = tiles;
-    if (diff.changedFraction === 0 && lastVisual) {
-      log("  frame unchanged; reusing previous sanitized visual", "dim");
-      return lastVisual;
-    }
-
     const space: CoordinateSpace = {
       dpr: perception.meta.viewport.dpr,
       scale: frame.scale,
@@ -398,7 +421,6 @@ async function buildVisual(
       });
 
     const visual = await buildSanitizedVisual(frame, redactions);
-    lastVisual = visual;
     log(
       `  visual: ${redactions.length} region(s) destroyed, ` +
         `self-check ${visual.selfCheck.pixelsChecked.toLocaleString()} px, ` +
@@ -406,7 +428,6 @@ async function buildVisual(
     );
     return visual;
   } catch (e) {
-    lastVisual = null;
     if (e instanceof SelfCheckFailed) {
       // Fail closed: a frame that flunks its own verification never leaves.
       log(`  ${e.message} Sending structure only.`, "err");
@@ -422,7 +443,13 @@ async function resolveStep(
   packet: SanitizedContextPacket,
   element: PacketElement | undefined,
   rawElement: RawRegion | undefined,
+  promptAnswers: PromptAnswer[],
+  correction?: string,
 ): Promise<ResolvedStep | "cancelled"> {
+  if (rawElement?.control?.inputType === "file") {
+    log("This question requires a file upload. Choose the file on the page, then run Dravika again.", "err");
+    return "cancelled";
+  }
   const resolved: ResolvedStep = { action: step.action };
   if (step.target_element_id) resolved.targetId = step.target_element_id;
   if (step.scroll) resolved.scroll = step.scroll;
@@ -432,16 +459,27 @@ async function resolveStep(
     switch (step.value.kind) {
       case "user_prompt": {
         const memoryKeys = element ? promptMemoryKeys(packet, element, step.value.prompt_text) : [];
-        const remembered = element?.state?.invalid
+        const supplied = !correction && element
+          ? promptAnswerForField(promptAnswers, element.id, element.state)
+          : undefined;
+        if (supplied !== undefined) {
+          log("  using the locally supplied task value for this field", "dim");
+          if (step.action === "select") resolved.optionLabel = supplied;
+          else resolved.text = supplied;
+          break;
+        }
+        const rejectedFilledValue = Boolean(correction) || element?.state?.invalid === true;
+        const remembered = rejectedFilledValue
           ? undefined
           : memoryKeys.map((key) => vault.recall(key)).find((value) => value !== undefined);
         if (remembered !== undefined) {
           log("  reusing the remembered answer for this form field", "dim");
-          resolved.text = remembered;
+          if (step.action === "select") resolved.optionLabel = remembered;
+          else resolved.text = remembered;
           break;
         }
         const label = element?.label?.trim() || `the ${element?.role ?? "form"} field`;
-        const validation = rawElement?.validationMessage?.trim();
+        const validation = correction || (rawElement?.state?.invalid ? rawElement.validationMessage?.trim() : "");
         const promptText = validation
           ? `${validation} Please enter a valid value for ${label}.`
           : element?.state?.invalid
@@ -449,10 +487,17 @@ async function resolveStep(
             : element
               ? `Please provide a value for ${label}.`
               : step.value.prompt_text;
-        const answer = await ask(promptText);
+        const help = rawElement?.control?.help;
+        const options = rawElement?.control?.options ?? [];
+        const answer = await ask(
+          [promptText, help, options.length ? `Options: ${options.join(", ")}` : ""].filter(Boolean).join("\n\n"),
+          step.action === "select" ? "text" : rawElement?.control?.inputType,
+        );
         if (answer === null) return "cancelled";
-        for (const key of memoryKeys) vault.remember(key, answer);
-        resolved.text = answer;
+        if (stopRequested) return "cancelled";
+        if (step.action !== "select") for (const key of memoryKeys) vault.remember(key, answer);
+        if (step.action === "select") resolved.optionLabel = answer;
+        else resolved.text = answer;
         break;
       }
       case "placeholder": {
@@ -490,6 +535,7 @@ async function resolveStep(
 }
 
 async function runTask(): Promise<void> {
+  if (runBtn.disabled) return;
   const intent = $<HTMLTextAreaElement>("task").value.trim();
   const mode = $<HTMLSelectElement>("mode").value as PrivacyMode;
   if (!intent) {
@@ -508,13 +554,15 @@ async function runTask(): Promise<void> {
   stopRequested = false;
   const history: TaskHistoryStep[] = [];
   let taskTabId: number | null = null;
-  let awaitingFieldProgress = false;
-  let filledBeforeLastPlan = 0;
+  let correction: { id: string; label: string | null; role: string; message: string; attempts: number } | null = null;
+  let stalled = 0;
+  const clicked = new Set<string>();
+  const correctionAttempts = new Map<string, number>();
 
   try {
     const tab = await activeTab();
     taskTabId = tab.id!;
-    const hostname = tab.url ? new URL(tab.url).hostname : "";
+    const hostname = tab.url ? new URL(tab.url).origin : "";
     if (lastTabId !== null && tab.id !== lastTabId) {
       vault.wipe();
       lastHostname = null;
@@ -531,7 +579,11 @@ async function runTask(): Promise<void> {
       log(`● iteration ${i}: perceiving…`, "dim");
       const perception = await sendToTab<PerceiveResponse>(tab.id!, { type: "perceive" });
       if (!perception.ok) throw new Error("perception failed");
+      if (perception.meta.truncated) throw new Error("This page exceeds the 300-element capture limit. Open a smaller form section before continuing.");
       log(`  ${perception.regions.length} regions from structure`);
+
+      const promptExtraction = extractPromptAnswers(intent, promptFields(perception.regions), registry);
+      if (stopRequested) return;
 
       // Capture before sanitization so the on-device face pass can add
       // regions the DOM knows nothing about; the same frame then feeds
@@ -542,25 +594,13 @@ async function runTask(): Promise<void> {
       const sanitized = policy.sanitize(
         [...perception.regions, ...faceRegions],
         mode,
-        intent,
+        perception.meta.pageKind.startsWith("form")
+          ? "Help complete the form sequentially. Values and corrections are supplied locally."
+          : promptExtraction.sanitizedIntent,
       );
       stats.redacted += sanitized.summary.regionsRedacted;
       renderStats();
-      const filledCount = sanitized.elements.filter((element) => {
-        return (
-          element.state?.filled === true ||
-          element.value?.kind === "placeholder" ||
-          element.value?.kind === "filled"
-        );
-      }).length;
-      if (awaitingFieldProgress) {
-        if (filledCount <= filledBeforeLastPlan) {
-          log("form input did not persist; stopping before repeating the prompt", "err");
-          return;
-        }
-        awaitingFieldProgress = false;
-      }
-      filledBeforeLastPlan = filledCount;
+      const filledCount = filledElementCount(sanitized.elements);
       if (filledCount > 0) {
         log(`  resume: ${filledCount} existing field(s) will be left unchanged`, "dim");
       }
@@ -571,24 +611,58 @@ async function runTask(): Promise<void> {
 
       const visual = frame ? await buildVisual(frame, perception, sanitized) : null;
       const packet = buildPacket(perception, sanitized, mode, history, visual);
-
-      const preview = $<HTMLImageElement>("visual-preview");
-      if (visual) {
-        preview.src = `data:image/webp;base64,${visual.base64}`;
-        preview.hidden = false;
-      } else {
-        preview.hidden = true;
+      rememberPromptAnswers(packet, promptExtraction.answers, vault);
+      for (const element of packet.elements) {
+        if (promptExtraction.answers.some((answer) => answer.fieldId === element.id)) element.evidence.push("structural:provided-locally");
       }
-      packetView.textContent = JSON.stringify(
-        { ...packet, visual: { ...packet.visual, data_b64: packet.visual.data_b64 ? `<${packet.visual.data_b64.length} base64 chars, shown above>` : undefined } },
-        null,
-        2,
-      );
+      if (promptExtraction.answers.length > 0) {
+        log(`  local prompt values available for ${promptExtraction.answers.length} field(s)`, "dim");
+      }
 
-      log("  sending through the egress gate…", "dim");
+      if (visual) {
+        visualPreview.show(visual.bytes);
+      } else {
+        visualPreview.clear("No redacted frame was included. This packet contains structure only.");
+      }
+      previewPacketId = packet.packet_id;
+      for (const node of document.querySelectorAll<HTMLElement>(".checks [id^=check-]")) {
+        node.className = "check waiting";
+        node.textContent = `${node.id.slice(6).toUpperCase()}: WAITING`;
+      }
+      packetPreview = {
+          transmission: correction ? "local_correction_not_sent" : "prepared_not_sent",
+          server_packet: {
+            ...packet,
+            visual: {
+              ...packet.visual,
+              data_b64: packet.visual.data_b64
+                ? `<${packet.visual.data_b64.length} base64 chars, shown above>`
+                : undefined,
+            },
+          },
+          local_redaction_audit: buildLocalRedactionAudit(
+            packet,
+            promptExtraction.answers.map((answer) => answer.fieldId),
+          ),
+        };
+      packetView.textContent = JSON.stringify(packetPreview, null, 2);
+
+      log(correction ? "  correcting locally…" : "  sending through the egress gate…", "dim");
       let plan: ActionPlan;
       try {
-        plan = await gate.send(packet);
+        if (correction) {
+          const candidates = perception.regions.filter((r) => r.role === correction!.role && r.label === correction!.label);
+          const target = perception.regions.find((r) => r.id === correction!.id) ?? (candidates.length === 1 ? candidates[0] : undefined);
+          if (!target) { log("The rejected field changed or disappeared. Stopping for review.", "err"); return; }
+          correction.id = target.id;
+          plan = {
+            schema: PLAN_SCHEMA_ID, packet_id: packet.packet_id, reasoning_summary: "Correcting the rejected field locally before continuing.",
+            steps: [{ action: target.role === "combobox" || target.role === "listbox" ? "select" : "type", target_element_id: target.id,
+              value: { kind: "user_prompt", prompt_text: "Correct this field" }, requires_confirmation: false }],
+            needs_more_context: true, confidence: 1,
+          };
+        } else plan = await gate.send(packet);
+        if (stopRequested) return;
       } catch (e) {
         if (e instanceof EgressBlocked) {
           log(`  BLOCKED by gate: ${e.reasons.join("; ")}`, "err");
@@ -600,11 +674,14 @@ async function runTask(): Promise<void> {
 
       let executedSomething = false;
       let pageChanged = false;
+      let rePerceiveAfterAnswer = false;
       let stateChangingActionExecuted = false;
       for (const step of plan.steps) {
         if (stopRequested) break;
         if (step.action === "done") {
-          log("✓ task complete", "ok");
+          const pending = perception.regions.some((r) => PROMPT_FIELD_ROLES.has(r.role) && !r.state?.disabled && !r.state?.readonly &&
+            (r.state?.invalid || (r.state?.required && !r.state?.filled)));
+          log(pending ? "Required or invalid fields remain; stopping for review." : "No further planned action. Check the form's confirmation before treating it as submitted.", pending ? "err" : "dim");
           return;
         }
         if (step.action === "abort") {
@@ -618,22 +695,31 @@ async function runTask(): Promise<void> {
           );
           if (!approved) {
             log(`  step ${step.action} rejected by user`, "dim");
-            continue;
+            return;
           }
+          if (stopRequested) return;
         }
         const el = packet.elements.find((x) => x.id === step.target_element_id);
         const rawEl = perception.regions.find((x) => x.id === step.target_element_id);
-        const resolved = await resolveStep(step, packet, el, rawEl);
+        const answerStep =
+          step.action === "type" ||
+          step.action === "select" ||
+          (step.action === "click" &&
+            Boolean(el && ["checkbox", "radio", "switch", "option"].includes(el.role)));
+        const resolved = await resolveStep(step, packet, el, rawEl, promptExtraction.answers, correction?.message);
         if (resolved === "cancelled") {
           log("  step cancelled by user", "dim");
-          continue;
+          return;
         }
+        if (stopRequested) return;
+        const clickKey = `${el?.id}|${el?.label}|${perception.regions.filter((r) => r.control).map((r) => r.id).join(",")}`;
+        if (step.action === "click" && clicked.has(clickKey)) { log("The same button was requested again without a page transition. Stopping for review.", "err"); return; }
         let grounding: Grounding | undefined;
         if (el) {
           grounding = {
             id: el.id,
             role: el.role,
-            label: el.label,
+            label: rawEl?.label ?? el.label,
             box: el.box,
             ...(el.state?.disabled !== undefined ? { disabled: el.state.disabled } : {}),
             ...(el.state?.readonly !== undefined ? { readonly: el.state.readonly } : {}),
@@ -656,22 +742,41 @@ async function runTask(): Promise<void> {
 
         if (result.ok) {
           executedSomething = true;
-          if (step.action === "type") awaitingFieldProgress = true;
-          if (step.action === "click" && step.requires_confirmation) {
+          stalled = 0;
+          correction = null;
+          if (step.action === "click") clicked.add(clickKey);
+          if (answerStep) rePerceiveAfterAnswer = true;
+          if (step.action === "click" && step.requires_confirmation && !/^(next|continue|back|previous)\b/i.test(el?.label ?? "")) {
             stateChangingActionExecuted = true;
           }
           log(`  ✓ ${step.action} ${el?.label ?? step.target_element_id ?? ""}`, "ok");
+          if (answerStep) break;
+          if (step.action === "click") { rePerceiveAfterAnswer = !stateChangingActionExecuted; break; }
+        } else if (result.error === "validation_failed" && rawEl) {
+          const attempts = (correctionAttempts.get(rawEl.id) ?? 0) + 1;
+          correctionAttempts.set(rawEl.id, attempts);
+          if (attempts > 3) { log("Three corrections were rejected. Stopping so you can review this field on the page.", "err"); return; }
+          correction = { id: rawEl.id, label: rawEl.label, role: rawEl.role, message: result.detail || "The form rejected this value.", attempts };
+          log(`Form validation — ${el?.label ?? rawEl.id}: ${correction.message}`, "err");
+          rePerceiveAfterAnswer = true;
+          break;
         } else if (result.error === "regrounding_failed" || result.error === "stale_snapshot") {
+          if (++stalled > 3) { log("The page kept changing; stopped after three retries.", "err"); return; }
           log(`  page changed (${result.detail ?? result.error}); re-perceiving`, "dim");
           pageChanged = true;
           break; // next iteration re-perceives
         } else {
           log(`  ✗ ${step.action}: ${result.detail ?? result.error}`, "err");
+          return;
         }
         await new Promise((r) => setTimeout(r, 350));
       }
 
       if (pageChanged) {
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+      if (rePerceiveAfterAnswer) {
         await new Promise((r) => setTimeout(r, 600));
         continue;
       }
@@ -681,7 +786,7 @@ async function runTask(): Promise<void> {
           return;
         }
         if (stateChangingActionExecuted) {
-          log("✓ plan complete", "ok");
+          log("Submission action executed. Review the page's confirmation.", "dim");
           return;
         }
       }
@@ -704,8 +809,15 @@ async function runTask(): Promise<void> {
 
 runBtn.addEventListener("click", () => void runTask());
 $<HTMLButtonElement>("export-receipts").addEventListener("click", exportReceipts);
+function cancelDialogs(): void {
+  for (const id of ["ask", "confirm"]) {
+    const dialog = $<HTMLDialogElement>(id);
+    if (dialog.open) dialog.close("cancel");
+  }
+}
 stopBtn.addEventListener("click", () => {
   stopRequested = true;
+  cancelDialogs();
   vault.wipe();
   activeTaskIntent = null;
   resumeAfterSameOriginNavigation = false;
@@ -714,6 +826,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId !== lastTabId) return;
   vault.wipe();
   stopRequested = true;
+  cancelDialogs();
   lastTabId = null;
   lastHostname = null;
   activeTaskIntent = null;
@@ -724,6 +837,7 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   if (lastTabId === null || tabId === lastTabId) return;
   vault.wipe();
   stopRequested = true;
+  cancelDialogs();
   lastTabId = tabId;
   lastHostname = null;
   activeTaskIntent = null;
@@ -734,7 +848,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (tabId !== lastTabId || !changeInfo.url) return;
   let nextHostname: string | null = null;
   try {
-    nextHostname = new URL(changeInfo.url).hostname;
+    nextHostname = new URL(changeInfo.url).origin;
   } catch {
     // Invalid or browser-internal URLs are a security boundary.
   }
@@ -749,6 +863,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     log("same-origin navigation; preserving process memory", "dim");
   }
   stopRequested = true;
+  cancelDialogs();
 });
 renderStats();
-log("ready. open a page, describe a task, press Run.", "dim");
+log("Dravika v0.2 ready. Open a page, describe a task, press Run.", "dim");

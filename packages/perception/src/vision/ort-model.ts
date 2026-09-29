@@ -43,15 +43,41 @@ export async function createOrtFaceModel(
   ort.env.wasm.numThreads = 1;
   if (options.wasmPaths) ort.env.wasm.wasmPaths = options.wasmPaths;
 
-  const session = await ort.InferenceSession.create(modelSource, {
-    executionProviders: options.executionProviders ?? ["wasm"],
-  });
+  type Session = Awaited<ReturnType<OrtNamespace["InferenceSession"]["create"]>>;
+  const providers = [...new Set(options.executionProviders ?? ["wasm"])].filter(
+    (provider): provider is "webgpu" | "wasm" => provider === "webgpu" || provider === "wasm",
+  );
+  let session: Session | undefined;
+  let backend: "webgpu" | "wasm" | undefined;
+  const create = async (provider: "webgpu" | "wasm"): Promise<Session> => {
+    return ort.InferenceSession.create(modelSource, { executionProviders: [provider] });
+  };
+  for (const provider of providers) {
+    try {
+      session = await create(provider);
+      backend = provider;
+      break;
+    } catch {
+      // Report only the provider that actually created a session.
+    }
+  }
+  if (!session) throw new Error("No local inference backend is available");
 
   return {
+    get backend() { return backend!; },
     async run(input: Float32Array) {
-      const output = await session.run({
-        input: new ort.Tensor("float32", input, [1, 3, ULTRAFACE_H, ULTRAFACE_W]),
-      });
+      const feeds = { input: new ort.Tensor("float32", input, [1, 3, ULTRAFACE_H, ULTRAFACE_W]) };
+      let output: Awaited<ReturnType<Session["run"]>>;
+      try {
+        output = await session!.run(feeds);
+      } catch (error) {
+        if (backend !== "webgpu" || !providers.includes("wasm")) throw error;
+        // Some devices expose WebGPU but fail when compiling/running this
+        // graph. Fall back on the first inference too, not only session setup.
+        session = await create("wasm");
+        backend = "wasm";
+        output = await session.run(feeds);
+      }
       return {
         scores: output["scores"]!.data as Float32Array,
         boxes: output["boxes"]!.data as Float32Array,

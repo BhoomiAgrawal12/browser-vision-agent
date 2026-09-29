@@ -1,7 +1,7 @@
 {
   "name": "@kavach/perception",
   "version": "0.1.0",
-  "description": "Kavach perception: capture, fresh-canvas redaction composition, self-check verification, dirty-region tiling. Pure core, thin browser wrappers.",
+  "description": "Dravika perception: capture, fresh-canvas redaction composition, self-check verification, dirty-region tiling. Pure core, thin browser wrappers.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -9,6 +9,8 @@
     "./compose": "./src/compose.ts",
     "./tiles": "./src/tiles.ts",
     "./browser": "./src/browser.ts",
+    "./models": "./src/models.ts",
+    "./media-metadata": "./src/media-metadata.ts",
     "./vision": "./src/vision/ultraface.ts",
     "./vision/ort": "./src/vision/ort-model.ts"
   },
