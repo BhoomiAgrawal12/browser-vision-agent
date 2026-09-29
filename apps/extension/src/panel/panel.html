@@ -15,8 +15,12 @@
         <p class="tagline">Private browsing assistant</p>
       </div>
     </div>
-    <span class="local-badge"><span class="status-dot" aria-hidden="true"></span>Local first</span>
+    <span class="local-badge"><span class="status-dot" aria-hidden="true"></span>Local vision</span>
   </header>
+  <div class="engine-summary" aria-live="polite">
+    <span class="engine-local">On-device perception and form verification</span>
+    <span id="planner-status" class="planner-status">Checking planner configuration…</span>
+  </div>
 
   <section class="controls">
     <div class="section-intro">
@@ -122,6 +126,20 @@
     <h3 class="audit-subhead">Local audit &amp; server-visible packet</h3>
     <pre id="media-report" class="packet-code media-report" tabindex="0" aria-label="Local media audit and sanitized packet"></pre>
   </section>
+
+  <dialog id="preflight">
+    <form method="dialog" class="preflight-form">
+      <p class="dialog-eyebrow">LOCAL PAGE CHECK</p>
+      <h2>Review this form</h2>
+      <p id="preflight-summary" class="preflight-summary"></p>
+      <ul id="preflight-fields" class="preflight-fields"></ul>
+      <p class="preflight-note">No page or form data is sent until you continue. Dravika re-checks the page before each field and asks in a separate popup for missing or rejected values.</p>
+      <div class="row">
+        <button value="ok" id="preflight-continue">Continue</button>
+        <button value="cancel" class="preflight-cancel" formnovalidate>Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="ask">
     <form method="dialog">

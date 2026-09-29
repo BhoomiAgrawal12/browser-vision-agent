@@ -42,7 +42,14 @@ describe("planner service", () => {
   it("reports health with the active planner", async () => {
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, planner: "heuristic" });
+    expect(await res.json()).toEqual({
+      ok: true,
+      planner: "heuristic",
+      provider: "local",
+      model_configured: false,
+      mode: "heuristic",
+      form_flow: "local-sequential-guarded",
+    });
   });
 
   it("plans against the fixture packet: asks the user for the empty pincode", async () => {

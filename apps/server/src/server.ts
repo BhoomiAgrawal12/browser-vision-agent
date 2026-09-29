@@ -9,6 +9,7 @@ import { heuristicPlan } from "./planner/heuristic.js";
 import {
   plannerConfigFromEnv,
   plannerPlan,
+  plannerProvider,
   shouldUseConfiguredPlanner,
 } from "./planner/remote.js";
 import { rescanPacket } from "./rescan.js";
@@ -85,6 +86,10 @@ export function makeServer(options: ServerOptions = {}): Server {
           planner: configuredPlanner
             ? `configured:${configuredPlanner.mode}`
             : "heuristic",
+          provider: plannerProvider(configuredPlanner),
+          model_configured: configuredPlanner !== null,
+          mode: configuredPlanner?.mode ?? "heuristic",
+          form_flow: "local-sequential-guarded",
         });
         return;
       }
@@ -147,17 +152,36 @@ export function makeServer(options: ServerOptions = {}): Server {
         ) {
           try {
             const configuredPlan = await plannerPlan(packet, configuredPlanner);
-            const configuredIssues = guardPlanAgainstPacket(configuredPlan, packet);
+            const formPage = packet.origin.page_kind.startsWith("form");
+            // A form advisory is only allowed to agree with the first local
+            // step. Any extra model-proposed actions are discarded, so an
+            // early submit/navigation suggestion cannot reach the client.
+            const guardedPlan = formPage
+              ? { ...configuredPlan, steps: configuredPlan.steps.slice(0, 1) }
+              : configuredPlan;
+            const configuredIssues = guardPlanAgainstPacket(guardedPlan, packet);
             const configuredPlanEmpty = configuredPlan.steps.length === 0 && deterministicPlan.steps.length > 0;
-            if (configuredIssues.length > 0 || configuredPlanEmpty) {
+            const formAdvisoryMismatch = formPage && !matchesLocalFormPlan(configuredPlan, deterministicPlan);
+            if (configuredIssues.length > 0 || configuredPlanEmpty || formAdvisoryMismatch) {
               auditLog(log, "planner_fallback", {
                 packet_key: packetLogKey(packet.packet_id),
                 reason: configuredPlanEmpty
                   ? "configured_plan_empty"
-                  : "configured_plan_failed_action_guard",
+                  : formAdvisoryMismatch
+                    ? "form_advisory_disagreed_with_local_step"
+                    : "configured_plan_failed_action_guard",
                 issues: configuredIssues.length,
                 issue_steps: configuredIssues.slice(0, 4).map((issue) => `${issue.step}:${issue.problem}`),
               });
+            } else if (formPage) {
+              const nextField = deterministicPlan.steps[0]?.target_element_id;
+              plan = {
+                ...deterministicPlan,
+                reasoning_summary: nextField
+                  ? "Remote advisory agrees with the locally selected next field; value collection and action execution remain local."
+                  : "Remote advisory agrees with the local form self-check; no required field action is pending.",
+              };
+              plannerUsed = "configured";
             } else {
               plan = configuredPlan;
               plannerUsed = "configured";
@@ -206,4 +230,14 @@ export function makeServer(options: ServerOptions = {}): Server {
       json(res, 500, { error: "internal planner error" });
     }
   });
+}
+
+function matchesLocalFormPlan(candidate: ActionPlan, local: ActionPlan): boolean {
+  if (candidate.packet_id !== local.packet_id || candidate.steps.length === 0 || local.steps.length !== 1) return false;
+  const step = candidate.steps[0]!;
+  const expected = local.steps[0]!;
+  return step.action === expected.action &&
+    step.target_element_id === expected.target_element_id &&
+    step.requires_confirmation === expected.requires_confirmation &&
+    step.value?.kind === expected.value?.kind;
 }

@@ -41,7 +41,7 @@ import {
 import { promptAnswerForField, promptMemoryKeys, rememberPromptAnswers } from "./prompt-memory.js";
 import { buildLocalRedactionAudit } from "./redaction-audit.js";
 import { createVisualPreview } from "./visual-preview.js";
-import { DEFAULT_SERVER_URL, makeTransport } from "../transport.js";
+import { DEFAULT_SERVER_URL, getPlannerHealth, makeTransport, type PlannerHealth } from "../transport.js";
 
 /**
  * The orchestrator. It lives in the side panel (a real, long-lived page)
@@ -60,6 +60,7 @@ const packetView = $("packet-view");
 const receiptsEl = $("receipts");
 const runBtn = $<HTMLButtonElement>("run");
 const stopBtn = $<HTMLButtonElement>("stop");
+const plannerStatus = $("planner-status");
 const visualPreview = createVisualPreview({
   frame: $("visual-preview-state"),
   image: $<HTMLImageElement>("visual-preview"),
@@ -68,6 +69,24 @@ const visualPreview = createVisualPreview({
 });
 let packetPreview: Record<string, unknown> | null = null;
 let previewPacketId: string | null = null;
+
+function renderPlannerStatus(health: PlannerHealth): void {
+  if (health.provider === "remote") {
+    plannerStatus.textContent = health.mode === "model"
+      ? "Remote planner advisory · form actions guarded locally"
+      : "Local form planner · remote planner available";
+    return;
+  }
+  plannerStatus.textContent = "Local heuristic planner · no remote model configured";
+}
+
+async function refreshPlannerStatus(): Promise<void> {
+  try {
+    renderPlannerStatus(await getPlannerHealth());
+  } catch {
+    plannerStatus.textContent = "Planner offline · local page checks remain available";
+  }
+}
 
 function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   const line = document.createElement("div");
@@ -216,7 +235,7 @@ async function verifyFormState(tabId: number): Promise<void> {
       log("local verification unavailable", "err");
       return;
     }
-    const fillable = new Set(["textbox", "password", "combobox"]);
+    const fillable = new Set(["textbox", "password", "combobox", "listbox"]);
     const fields = perception.regions.filter((region) => fillable.has(region.role));
     const filled = fields.filter((field) => field.state?.filled === true).length;
     const requiredEmpty = fields.filter((field) => {
@@ -258,6 +277,68 @@ function promptFields(regions: RawRegion[]): PromptField[] {
       label: region.label,
       ...(region.structuralClass ? { structuralClass: region.structuralClass } : {}),
     }));
+}
+
+const REVIEW_ROLES = new Set([
+  ...PROMPT_FIELD_ROLES,
+  "radio",
+  "checkbox",
+  "radiogroup",
+  "switch",
+]);
+
+function reviewForm(regions: RawRegion[]): Promise<boolean> {
+  const fields = regions.filter((region) => REVIEW_ROLES.has(region.role));
+  const editable = fields.filter((field) => field.state?.disabled !== true && field.state?.readonly !== true);
+  const missing = editable.filter((field) => field.state?.required === true && field.state?.filled !== true && field.state?.invalid !== true);
+  const invalid = editable.filter((field) => field.state?.invalid === true);
+  const summary = $("preflight-summary");
+  summary.textContent = [
+    `Local self-check found ${fields.length} question control${fields.length === 1 ? "" : "s"}.`,
+    `${missing.length} required answer${missing.length === 1 ? "" : "s"} needed`,
+    `${invalid.length} value${invalid.length === 1 ? "" : "s"} need correction`,
+    `${Math.max(0, editable.length - missing.length - invalid.length)} already filled or optional`,
+  ].join(" ");
+
+  const list = $("preflight-fields");
+  list.replaceChildren();
+  for (const field of fields) {
+    const item = document.createElement("li");
+    item.className = "preflight-field";
+    const label = document.createElement("span");
+    label.className = "preflight-field-label";
+    label.textContent = field.label?.trim() || `Unlabeled ${field.role}`;
+    const state = document.createElement("span");
+    state.className = "preflight-field-state";
+    if (field.state?.disabled === true || field.state?.readonly === true) {
+      state.textContent = "Unavailable";
+    } else if (field.state?.invalid === true) {
+      state.textContent = "Correction needed";
+      state.classList.add("needs-correction");
+    } else if (field.state?.required === true && field.state?.filled !== true) {
+      state.textContent = "Required · will ask";
+      state.classList.add("needs-answer");
+    } else if (field.state?.filled === true) {
+      state.textContent = "Filled · unchanged";
+    } else {
+      state.textContent = field.state?.required ? "Required" : "Optional · left blank";
+    }
+    item.append(label, state);
+    list.append(item);
+  }
+  if (fields.length === 0) {
+    const item = document.createElement("li");
+    item.className = "preflight-field";
+    item.textContent = "No fillable questions detected. You can still continue with a general page task.";
+    list.append(item);
+  }
+
+  const dialog = $<HTMLDialogElement>("preflight");
+  dialog.returnValue = "cancel";
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok"), { once: true });
+  });
 }
 
 function buildPacket(
@@ -575,6 +656,18 @@ async function runTask(): Promise<void> {
     lastTabId = tab.id!;
     lastHostname = hostname;
 
+    const initialCheck = await sendToTab<PerceiveResponse>(tab.id!, { type: "perceive" });
+    if (!initialCheck.ok) throw new Error("local page self-check failed");
+    if (initialCheck.meta.truncated) throw new Error("This page exceeds the 300-element capture limit. Open a smaller form section before continuing.");
+    if (initialCheck.meta.pageKind.startsWith("form")) {
+      const editable = initialCheck.regions.filter((region) => REVIEW_ROLES.has(region.role));
+      log(`local self-check: ${editable.length} form question controls found; awaiting your review`, "dim");
+      if (!await reviewForm(initialCheck.regions) || stopRequested) {
+        log("cancelled before planning; no packet was sent", "dim");
+        return;
+      }
+    }
+
     for (let i = 1; i <= MAX_ITERATIONS && !stopRequested; i++) {
       log(`● iteration ${i}: perceiving…`, "dim");
       const perception = await sendToTab<PerceiveResponse>(tab.id!, { type: "perceive" });
@@ -810,7 +903,7 @@ async function runTask(): Promise<void> {
 runBtn.addEventListener("click", () => void runTask());
 $<HTMLButtonElement>("export-receipts").addEventListener("click", exportReceipts);
 function cancelDialogs(): void {
-  for (const id of ["ask", "confirm"]) {
+  for (const id of ["preflight", "ask", "confirm"]) {
     const dialog = $<HTMLDialogElement>(id);
     if (dialog.open) dialog.close("cancel");
   }
@@ -867,3 +960,4 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 renderStats();
 log("Dravika v0.2 ready. Open a page, describe a task, press Run.", "dim");
+void refreshPlannerStatus();

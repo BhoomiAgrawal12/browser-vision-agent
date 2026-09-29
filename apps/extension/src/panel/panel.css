@@ -61,6 +61,19 @@ h1 { font-size: 19px; line-height: 1.1; margin: 0; letter-spacing: -0.02em; }
   white-space: nowrap;
 }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+.engine-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  margin: -8px 2px 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.engine-local { color: var(--accent-dark); font-weight: 700; }
+.engine-local::before { content: "●"; margin-right: 5px; color: var(--good); font-size: 8px; }
+.planner-status { overflow-wrap: anywhere; }
 h2 { font-size: 10px; margin: 0 0 9px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.1em; }
 .hint { color: var(--accent); text-transform: none; letter-spacing: 0; font-weight: 650; }
 
@@ -409,6 +422,46 @@ dialog {
 }
 dialog::backdrop { background: rgba(31, 62, 40, 0.22); }
 dialog form { display: flex; flex-direction: column; gap: 12px; }
+dialog#preflight {
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(84vh, 620px);
+}
+.preflight-form h2 {
+  margin: -8px 0 0;
+  color: var(--ink);
+  font-size: 18px;
+  text-transform: none;
+  letter-spacing: -0.02em;
+}
+.dialog-eyebrow { margin: 0; color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; }
+.preflight-summary { margin: 0; color: var(--ink-soft); font-size: 12px; }
+.preflight-fields {
+  display: grid;
+  gap: 6px;
+  max-height: min(34vh, 250px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 3px 0 0;
+  list-style: none;
+}
+.preflight-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 9px;
+  background: var(--panel-soft);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.preflight-field-label { min-width: 0; color: var(--ink); font-size: 11px; font-weight: 650; overflow-wrap: anywhere; }
+.preflight-field-state { flex: 0 0 auto; color: var(--ink-soft); font-size: 9px; text-align: right; }
+.preflight-field-state.needs-answer { color: var(--accent-dark); font-weight: 750; }
+.preflight-field-state.needs-correction { color: var(--bad); font-weight: 750; }
+.preflight-note { margin: 0; padding: 8px 9px; background: #edf6ef; border-radius: 8px; color: var(--ink-soft); font-size: 10px; }
+.preflight-cancel { background: var(--panel); border: 1px solid var(--rule); color: var(--ink-soft); }
+.preflight-cancel:hover:not(:disabled) { background: var(--panel-soft); color: var(--ink); }
 
 @media (max-width: 300px) {
   body { padding: 12px; }

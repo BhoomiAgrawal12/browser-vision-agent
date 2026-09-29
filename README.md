@@ -3,8 +3,7 @@
 A privacy-preserving vision agent that runs in your browser. A local eye, a remote brain,
 and an unbreakable filter in between.
 
-Built for SIH 2026 problem statement "On-device Visual Perception for Light-weight Browser
-Agents" (ISRO Space Applications Centre).
+Designed for privacy-preserving browser task assistance with on-device perception and guarded actions.
 
 ## The idea in one paragraph
 
@@ -62,10 +61,12 @@ placeholders, while detected faces are represented as redacted visual regions;
 the 12 digit application reference survives untouched because it fails the
 Verhoeff checksum. Every request produces a receipt.
 
-To use a configured planner instead of the deterministic fallback, copy
-`.env.example` to `.env`, set `PLANNER_ENDPOINT`, `PLANNER_MODEL`, and the
-optional `PLANNER_API_KEY`, then run `npm run dev`. The endpoint receives only
-sanitized packets; it is not a substitute for the local vision pass.
+An optional remote planner can be configured through an OpenAI-compatible chat
+endpoint. Copy `.env.example` to `.env`, set the endpoint, model and API key,
+then run `npm run dev`. The panel identifies local processing separately from
+any remote planner. Remote advice receives sanitized context only; form order,
+answer collection, validation, confirmation and execution remain locally guarded.
+Leave the endpoint unset to use the local heuristic planner. Do not commit `.env`.
 
 ## The single-door rule
 

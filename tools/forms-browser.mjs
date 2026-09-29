@@ -41,7 +41,14 @@ try {
     const packets = [];
     await context.route("http://127.0.0.1:8787/**", async (route) => {
       const body = route.request().postData();
-      if (!body) { await route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type" } }); return; }
+      if (!body) {
+        await route.fulfill({
+          status: 200,
+          headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type", "content-type": "application/json" },
+          body: JSON.stringify({ ok: true, planner: "configured:model", provider: "remote", model_configured: true, mode: "model", form_flow: "local-sequential-guarded" }),
+        });
+        return;
+      }
       packets.push(JSON.parse(body));
       const response = await fetch(plannerUrl + "/plan", { method: "POST", headers: { "content-type": "application/json" }, body });
       await route.fulfill({ status: response.status, body: await response.text(), headers: { "access-control-allow-origin": "*", "content-type": "application/json" } });
@@ -85,6 +92,8 @@ try {
     }, { url: base + "/form" });
     await panel.setViewportSize({ width: 360, height: 820 });
     await panel.goto(base + "/panel.html");
+    await panel.waitForFunction(() => document.querySelector("#planner-status")?.textContent?.includes("Remote planner advisory"));
+    assert.match(await panel.locator("#planner-status").innerText(), /form actions guarded locally/);
     await panel.locator("#media-file-name").evaluate((node) => { node.textContent = "very-long-selected-document-name-with-private-but-synthetic-test-content-2026-09.pdf"; });
     await panel.locator("#packet-view").evaluate((node) => { node.textContent = JSON.stringify({ packet: "x".repeat(900) }, null, 2); });
     for (const width of [360, 320, 280]) {
@@ -177,6 +186,22 @@ try {
     await panel.selectOption("#mode", "wireframe");
     await panel.fill("#task", "Fill this form. Name: Test Person, Date: wrong, Email: private@example.test, City: Example City, Country: India, Contact preference: Email");
     await panel.click("#run");
+    await panel.waitForSelector("#preflight[open]");
+    const questions = await panel.locator("#preflight-fields").innerText();
+    assert.match(questions, /Name/i);
+    assert.match(questions, /Date/i);
+    assert.match(questions, /Email/i);
+    assert.doesNotMatch(questions, /private@example\.test|Test Person/i);
+    assert.equal(packets.length, 0, "local self-check must finish before any page packet is sent");
+    if (provider === "google") {
+      await panel.click('#preflight button[value="cancel"]');
+      await panel.waitForFunction(() => !document.querySelector("#run").disabled);
+      assert.equal(packets.length, 0, "cancelled preflight must not contact the planner");
+      assert.equal(await form.locator("#name").inputValue(), "");
+      await panel.click("#run");
+      await panel.waitForSelector("#preflight[open]");
+    }
+    await panel.click("#preflight-continue");
     await panel.waitForFunction(() => document.querySelector('#ask[open] #ask-text')?.textContent?.includes('DD/MM/YYYY'), undefined, { timeout: 15000 });
     assert.equal(await form.locator("#email").inputValue(), "", "must not advance beyond invalid date");
     await panel.fill("#ask-input", "25/12/2000");
@@ -202,6 +227,8 @@ try {
     await panel.waitForFunction(() => !document.querySelector('#run').disabled);
     await panel.fill("#task", "Help fill this form");
     await panel.click("#run");
+    await panel.waitForSelector("#preflight[open]");
+    await panel.click("#preflight-continue");
     await panel.waitForSelector("#ask[open]");
     await panel.evaluate(() => document.querySelector('#stop').click());
     await panel.waitForFunction(() => !document.querySelector('#run').disabled);

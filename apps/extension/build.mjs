@@ -63,7 +63,7 @@ const firefoxManifest = {
   browser_action: { default_title: "Dravika" },
   sidebar_action: { default_title: "Dravika", default_panel: "panel.html" },
   browser_specific_settings: {
-    gecko: { id: "dravika@sih2026", strict_min_version: "115.0" },
+    gecko: { id: "dravika@browser-agent", strict_min_version: "115.0" },
   },
 };
 

@@ -22,6 +22,8 @@ export interface PlannerConfig {
   mode: PlannerMode;
 }
 
+export type PlannerProvider = "local" | "remote";
+
 function numberFromEnv(
   value: string | undefined,
   fallback: number,
@@ -48,6 +50,11 @@ export function plannerConfigFromEnv(
     temperature: numberFromEnv(env["PLANNER_TEMPERATURE"], 0, (n) => n >= 0 && n <= 2),
     mode: modeFromEnv(env["PLANNER_MODE"]),
   };
+}
+
+/** Report only whether planning is local or configured remotely. */
+export function plannerProvider(config: PlannerConfig | null): PlannerProvider {
+  return config ? "remote" : "local";
 }
 
 function buildSystemPrompt(packet: SanitizedContextPacket): string {
@@ -97,6 +104,12 @@ function buildSystemPrompt(packet: SanitizedContextPacket): string {
     "once per target in one",
     "plan. If state.invalid is true, ask the user to correct that same field",
     "before moving on, and put navigation or submit clicks after data-entry steps.",
+    ...(packet.origin.page_kind.startsWith("form")
+      ? [
+          "This is a form. Return exactly one next action. Never submit or navigate while any required field is empty or invalid.",
+          "The browser rechecks the page after that action; do not plan later form steps yet.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -179,9 +192,10 @@ export function shouldUseConfiguredPlanner(
   deterministicPlan: ActionPlanType,
   config: PlannerConfig,
 ): boolean {
-  // Routine form input is ordered by the DOM and validated locally. Letting an
-  // LLM override this step caused skipped questions and premature submissions.
-  if (packet.origin.page_kind.startsWith("form")) return false;
+  // A configured remote model may advise on the next form action in explicit
+  // model mode. The server accepts it only when its target/action exactly matches the local
+  // deterministic step; the client still resolves values and executes locally.
+  if (packet.origin.page_kind.startsWith("form")) return config.mode === "model";
   // Auto mode keeps routine field filling deterministic; use the configured
   // model when the heuristic needs context or reports no useful next action.
   if (config.mode === "heuristic") return false;

@@ -46,7 +46,8 @@ safe-region release and specialised signature/document models are not claimed.
 
 - **Phase 0:** `npm test`, all workspace typechecks, both extension builds, and
   isolated Chromium form fixtures pass. The supplied Microsoft Forms page was inspected
-  read-only. Installed-extension Chrome/Firefox smoke checks remain blocked by
+  read-only. A local review popup lists detected fields before planner requests;
+  canceling it sends no form data. Installed-extension Chrome/Firefox smoke checks remain blocked by
   this environment's managed Chrome policy and failed Firefox launch.
 - **Phase 1:** bundled, SHA-pinned UltraFace and English OCR; JPEG/PNG/WebP
   metadata inspection, flat-fill re-encoding, QR/barcode scan, and pixel
@@ -72,7 +73,7 @@ Sensitive content must be detected, sanitized, and verified locally.
 
 ### 3.2 Make the security process visible
 
-The user and judges should be able to see every check performed before a
+The user and reviewers should be able to see every check performed before a
 network request. A failed check must visibly block the request and explain why.
 
 ### 3.3 Keep the current safety model
@@ -392,6 +393,8 @@ control.
   `label for` controls, with a direct perceive-to-reground regression test.
 - [x] Validate the configured planner path with synthetic/manual packets and
   payload-free `packet_received`, `planner_fallback`, and `plan_sent` logs.
+- [x] Use configured remote form advice only when it matches the locally
+  selected next field; discard extra model actions and retain local execution.
 - [x] Document that a configured planner endpoint is remote and optional; it is
   not the local vision model and must not receive real user data.
 
@@ -399,7 +402,8 @@ control.
 
 - [x] Exercise the built Chrome panel and content bundles in isolated Chromium
   on Google- and Microsoft-style forms, including prompt reuse, sequential
-  filling, delayed date validation, choices and submit consent.
+  filling, local preflight approval/cancellation, delayed date validation,
+  choices and submit consent.
 - [x] Inspect the supplied live Microsoft Forms page in a read-only browser
   run; all seven visible question controls were identified. No submission was
   attempted on the real page.
@@ -485,7 +489,7 @@ privacy support.
 #### Completed
 
 - [x] Add automated red-team, scoring, and latency benchmark infrastructure.
-- [x] Add the SIH presentation deck and its reproducible asset generator.
+- [x] Add a product presentation deck and its reproducible asset generator.
 
 #### Remaining
 
