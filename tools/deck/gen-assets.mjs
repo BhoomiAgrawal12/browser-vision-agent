@@ -6,7 +6,7 @@
  *  - the blur-attack images from tools/attack-deblur
  */
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
@@ -16,7 +16,8 @@ const ROOT = join(HERE, "..", "..");
 const ASSETS = join(HERE, "assets");
 mkdirSync(ASSETS, { recursive: true });
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = process.env.DRAVIKA_BROWSER ?? ["/usr/bin/google-chrome", "/opt/brave.com/brave-origin/brave", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
+if (!CHROME) throw new Error("Set DRAVIKA_BROWSER to a Chrome/Brave executable.");
 const PORT = 9412;
 
 /* ---- pick diagrams out of the report by a distinctive substring ---- */
@@ -42,7 +43,7 @@ const picked = WANTED.map(([name, needle]) => {
   return { name, src };
 });
 
-const mermaidJs = readFileSync(join(HERE, "mermaid.min.js"), "utf8");
+const mermaidJs = readFileSync(join(HERE, "node_modules/mermaid/dist/mermaid.min.js"), "utf8");
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const diagramPage = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -181,7 +182,7 @@ try {
       $("export-receipts").disabled = false;
       $("packet-view").textContent = JSON.stringify(
         {
-          schema: "kavach.scp/1.0",
+          schema: "dravika.scp/1.0",
           policy: { mode: "shield", invariant_floor: true },
           origin: { class: "government", tls: true },
           visual: { present: true, sha256: "9f2c1a…", regions_redacted: 7 },

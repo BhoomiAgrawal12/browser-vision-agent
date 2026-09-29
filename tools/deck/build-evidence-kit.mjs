@@ -5,10 +5,9 @@
  * moment) the team can drop into the deck, honestly tagged READY (measured,
  * in repo) or ROADMAP (planned, not yet measured).
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
 import puppeteer from "puppeteer-core";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -49,7 +48,7 @@ const img = (src, cap, h = "70mm") =>
 const say = (t) => `<p class="say"><b>Say this:</b> ${t}</p>`;
 
 const html = `<!doctype html><html><head><meta charset="utf-8">
-<title>Kavach Evaluation Evidence Kit</title>
+<title>Dravika Evaluation Evidence Kit</title>
 <style>
   @page { size: A4; margin: 13mm 12mm 16mm 12mm; }
   * { box-sizing: border-box; }
@@ -87,7 +86,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8">
          border-radius: 2pt; }
 </style></head><body>
 
-<h1>Kavach: Evaluation Evidence Kit</h1>
+<h1>Dravika: Evaluation Evidence Kit</h1>
 <p>Every asset the deck can use, organised by the five SIH scoring parameters. Each option is
 tagged <b>READY</b> (measured, generated from the repo, drop-in) or <b>ROADMAP</b> (planned,
 say it as future work, never as a result). Images live in
@@ -96,7 +95,7 @@ say it as future work, never as a result). Images live in
 <code>npm run demo:deblur</code>.</p>
 <div class="cover-note">
 <b>Inventory:</b> 5 stat-tile sets · 6 charts · 4 prototype screenshots · 3 attack images ·
-9 rendered flowcharts · 4 benchmark tables · 203 automated tests behind the numbers.<br>
+ 9 rendered flowcharts · 4 benchmark tables · 235 automated tests behind the numbers.<br>
 <b>Rule of use:</b> one hero asset per slide plus one table or stat row. Do not stack three
 charts on one slide.
 </div>
@@ -109,7 +108,7 @@ charts on one slide.
 
 ${opt("IMAGE", "READY", "Option A: the scene-graph overlay (hero asset for this metric)",
   img(IMG.scenegraph,
-    "evidence-scenegraph.png: how Kavach sees the demo form. 11 regions with ids, roles and " +
+    "evidence-scenegraph.png: how Dravika sees the demo form. 11 regions with ids, roles and " +
     "states from a ~15 ms DOM + accessibility walk; the photo is flagged unexplained (fail closed).") +
   say("Structure explains the whole form in 15 milliseconds with zero models. Pixels are only " +
       "consulted where structure cannot vouch, and anything unexplained is masked, never guessed."))}
@@ -125,7 +124,7 @@ ${opt("TABLE", "READY", "Option C: perception mechanisms, each pinned by tests",
   <tr><td>DOM + accessibility walk with roles, labels, states</td><td>~15 ms, measured; happy-dom test suite</td></tr>
   <tr><td>Open shadow-root traversal, hidden/off-screen filtering</td><td>unit tested</td></tr>
   <tr><td>Vision-to-DOM fusion (IoU + centroid + role compatibility)</td><td>15 fusion tests, DPR-safe coordinates</td></tr>
-  <tr><td>On-device face pass on the same frame the composer redacts</td><td>12.8 ms measured, real ONNX in CI</td></tr>
+  <tr><td>On-device face pass on the same frame the composer redacts</td><td>54.4 ms measured, real ONNX on Linux WASM</td></tr>
   <tr><td>Unexplained pixels fail closed</td><td>policy tests + red team</td></tr>
   <tr><td>Re-grounding before every action</td><td>executor tests</td></tr></table>`)}
 
@@ -193,7 +192,7 @@ ${opt("IMAGE", "READY", "Option A: the split screen (hero asset)",
 ${opt("IMAGE", "READY", "Option B: the blur-recovery attack (the memorable 30 seconds)",
   `<img src="${IMG.blur1}" style="max-height:16mm"><p class="cap">original</p>
    <img src="${IMG.blur2}" style="max-height:16mm"><p class="cap">blurred far past human readability (sigma 14)</p>
-   <img src="${IMG.blur3}" style="max-height:16mm"><p class="cap">what Kavach sends</p>
+    <img src="${IMG.blur3}" style="max-height:16mm"><p class="cap">what Dravika sends</p>
    <p><b>Attack result:</b> blur &rarr; 16/16 digits recovered (100%). Flat fill &rarr; chance level,
    identical candidate ranking in every cell: zero plaintext information.
    Reproduce live: <code>npm run demo:deblur</code></p>` +
@@ -237,10 +236,10 @@ ${opt("DIAGRAM", "READY", "Option B: the model ladder",
 ${opt("TABLE", "READY", "Option C: measured footprint table",
   `<table><tr><th>Item</th><th>Measured</th></tr>
   <tr><td>Face model (only model shipped)</td><td>1.27 MB, SHA-256 pinned, provenance is a CI test</td></tr>
-  <tr><td>Inference CPU cost</td><td>12.8 ms on ONE wasm thread (no GPU assumed)</td></tr>
+  <tr><td>Inference CPU cost</td><td>54.4 ms on ONE wasm thread (no GPU assumed)</td></tr>
   <tr><td>Sanitized frame on the wire</td><td>~62 KB WebP at 1024 px; Wireframe packet ~9 KB, zero pixels</td></tr>
-  <tr><td>Unchanged frames</td><td>tile hash (0.21 ms) skips the entire visual pipeline</td></tr>
-  <tr><td>Whole local pipeline</td><td>15.9 ms CPU per frame, single core</td></tr></table>`)}
+  <tr><td>Unchanged frames</td><td>tile hash (0.37 ms) skips the entire visual pipeline</td></tr>
+  <tr><td>Whole local pipeline</td><td>71.2 ms CPU per frame, single core</td></tr></table>`)}
 
 ${opt("TABLE", "ROADMAP", "Option D: three device classes (low / mid / high)",
   `<p>The report commits to CPU%, heap, battery and host-page FPS impact on three machines
@@ -256,12 +255,12 @@ ${opt("TABLE", "ROADMAP", "Option D: three device classes (low / mid / high)",
 
 ${opt("CHART", "READY", "Option A: the latency waterfall (hero asset)",
   img(IMG.latency, "chart-latency.png: per-stage p50/p95 on real code paths.", "82mm") +
-  say("The entire privacy layer costs 15.9 milliseconds against a 175 millisecond budget. " +
+  say("The entire privacy layer costs 71.2 milliseconds against a 175 millisecond budget. " +
       "End-to-end latency is dominated by the remote model, exactly as designed."))}
 
 ${opt("TABLE", "READY", "Option B: end-to-end budget vs measured",
   `<table><tr><th>Segment</th><th>Status</th><th>Value</th></tr>
-  <tr><td>Local perceive + sanitize + gate (per frame)</td><td>measured</td><td><b>15.9 ms p50</b> (budget 175 ms)</td></tr>
+  <tr><td>Local perceive + sanitize + gate (per frame)</td><td>measured</td><td><b>71.2 ms p50</b> (budget 175 ms)</td></tr>
   <tr><td>Policy engine over the full 18-capture corpus</td><td>measured</td><td>0.33 ms</td></tr>
   <tr><td>Network + planner round trip</td><td>design budget</td><td>~0.8 to 1.8 s, model-dominated</td></tr>
   <tr><td>Unchanged-frame iteration</td><td>measured mechanism</td><td>visual pipeline skipped entirely</td></tr></table>`)}
@@ -280,31 +279,31 @@ ${opt("STAT", "ROADMAP", "Option D: wall-clock on the 12 benchmark tasks",
 <code>npm run bench:latency</code> (stages), <code>npm run demo:deblur</code> (attack),
 <code>node tools/deck/gen-assets.mjs</code> + <code>render-charts.mjs</code> +
 <code>gen-evidence.mjs</code> (images), <code>node tools/deck/build-deck.mjs</code> (deck).
-All 194 tests must be green first: <code>npm test</code>.
+Run current tests and browser fixtures first: <code>npm test</code> and
+<code>npm run test:browser</code>. See docs/IMPLEMENTATION-EVIDENCE.md for
+exact measured scope and remaining limits.
 </div>
 </div>
 </body></html>`;
 
 writeFileSync(join(HERE, "evidence-kit.html"), html);
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const proc = spawn(CHROME, ["--headless=new","--disable-gpu","--no-sandbox","--no-first-run",
-  "--remote-debugging-port=9429","--user-data-dir="+join(HERE,".chrome-kit"),"about:blank"],{stdio:"ignore"});
-const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-let browser; for(let i=0;i<40&&!browser;i++){try{browser=await puppeteer.connect({browserURL:"http://127.0.0.1:9429", protocolTimeout: 240000});}catch{await sleep(500);}}
+const CHROME = process.env.DRAVIKA_BROWSER || ["/usr/bin/google-chrome", "/opt/brave.com/brave-origin/brave", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
+if (!CHROME) throw new Error("Set DRAVIKA_BROWSER to a Chrome/Brave executable to render the evidence PDF");
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox", "--disable-gpu"], protocolTimeout: 240000 });
 const page = await browser.newPage();
 await page.goto("file://"+join(HERE,"evidence-kit.html"),{waitUntil:"load", timeout: 240000});
-await sleep(800);
+await new Promise((resolve) => setTimeout(resolve, 800));
 await page.pdf({
   path: join(ROOT, "docs", "Evaluation-Evidence-Kit.pdf"),
   format: "A4", printBackground: true, preferCSSPageSize: true,
   displayHeaderFooter: true, headerTemplate: "<div></div>",
   footerTemplate: `<div style="width:100%;font-size:7pt;color:#8a9099;font-family:Arial;
     padding:0 12mm;display:flex;justify-content:space-between;">
-    <span>Kavach · Evaluation Evidence Kit</span>
+    <span>Dravika · Evaluation Evidence Kit</span>
     <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
   margin: { top: "13mm", bottom: "16mm", left: "12mm", right: "12mm" },
   timeout: 240000,
 });
 console.log("wrote docs/Evaluation-Evidence-Kit.pdf");
-await browser.disconnect(); proc.kill();
+await browser.close();

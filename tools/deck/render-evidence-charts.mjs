@@ -1,9 +1,11 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = process.env.DRAVIKA_BROWSER ?? ["/usr/bin/google-chrome", "/opt/brave.com/brave-origin/brave", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
+if (!CHROME) throw new Error("Set DRAVIKA_BROWSER to a Chrome/Brave executable.");
 const proc = spawn(CHROME, ["--headless=new","--disable-gpu","--no-sandbox","--no-first-run",
   "--remote-debugging-port=9428","--user-data-dir="+join(HERE,".chrome-ev2"),"about:blank"],{stdio:"ignore"});
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));

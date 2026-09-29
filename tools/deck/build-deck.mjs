@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build the Kavach SIH deck: docs/Kavach-SIH2026-Deck.pptx
+ * Build the Dravika SIH deck: docs/Dravika-SIH2026-Deck.pptx
  * Everything embedded is generated from the repo itself: diagrams from the
  * report's mermaid sources, screenshots of the running prototype, images
  * from the blur attack, and the measured numbers from bench/.
@@ -44,8 +44,8 @@ function fit(path, x, y, boxW, boxH) {
 const pptx = new Pptx();
 pptx.defineLayout({ name: "WIDE", width: W, height: H });
 pptx.layout = "WIDE";
-pptx.author = "Team Kavach";
-pptx.title = "Kavach: On-Device Visual Perception for Light-weight Browser Agents";
+pptx.author = "Team Dravika";
+pptx.title = "Dravika: On-Device Visual Perception for Light-weight Browser Agents";
 
 pptx.defineSlideMaster({
   title: "BODY",
@@ -54,7 +54,7 @@ pptx.defineSlideMaster({
     { rect: { x: 0, y: 0, w: W, h: 0.09, fill: { color: NAVY } } },
     {
       text: {
-        text: "KAVACH",
+        text: "DRAVIKA",
         options: {
           x: W - 1.4, y: H - 0.42, w: 1.1, h: 0.3, fontFace: FONT, fontSize: 9,
           color: SOFT, align: "right", charSpacing: 3,
@@ -123,7 +123,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
 {
   const s = pptx.addSlide();
   s.background = { color: NAVY };
-  s.addText("KAVACH", {
+  s.addText("DRAVIKA", {
     x: 0.8, y: 2.1, w: 11.7, h: 1.1, fontFace: FONT, fontSize: 60, bold: true,
     color: "FFFFFF", charSpacing: 6,
   });
@@ -136,7 +136,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 0.85, y: 4.35, w: 11.6, h: 0.8, fontFace: FONT, fontSize: 14, color: "E8EEF5" },
   );
   s.addText(
-    "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  203 automated tests",
+      "Working prototype  |  github.com/BhoomiAgrawal12/browser-vision-agent  |  235 automated tests",
     { x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
@@ -340,7 +340,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   const rows = [
     ["attack-1-original.png", "The card number as rendered", INK],
     ["attack-2-blurred.png", "Blurred far past human readability (sigma 14)", RED],
-    ["attack-3-flat-fill.png", "What Kavach actually sends", GREEN],
+    ["attack-3-flat-fill.png", "What Dravika actually sends", GREEN],
   ];
   rows.forEach(([img, cap, color], i) => {
     const y = 1.4 + i * 1.32;
@@ -440,7 +440,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     ["100%", "micro precision, Shield", GREEN],
     ["0", "invariant-class leaks", GREEN],
     ["0", "false alarms on negatives", GREEN],
-    ["15.9 ms", "local pipeline p50 (175 ms budget)", NAVY],
+    ["71.2 ms", "local pipeline p50 (175 ms budget)", NAVY],
     ["10 / 10", "red team defences hold", NAVY],
   ];
   tiles.forEach(([num, cap, color], i) => {
@@ -493,7 +493,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     [
       [{ text: "Redaction", options: th }, { text: "Digits recovered", options: th }, { text: "Signal", options: th }],
       [{ text: "Gaussian blur (sigma 14)", options: td }, { text: "16 / 16 (100%)", options: { ...td, bold: true, color: RED } }, { text: "fully recoverable", options: td }],
-      [{ text: "Kavach flat fill", options: td }, { text: "1 / 16 (chance)", options: { ...td, bold: true, color: GREEN } }, { text: "zero plaintext info", options: td }],
+      [{ text: "Dravika flat fill", options: td }, { text: "1 / 16 (chance)", options: { ...td, bold: true, color: GREEN } }, { text: "zero plaintext info", options: td }],
     ],
     { x: 7.25, y: 1.8, w: 5.5, colW: [2.1, 1.9, 1.5], border: { pt: 0.5, color: RULE }, rowH: 0.42 },
   );
@@ -515,7 +515,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
     { x: 7.25, y: 3.6, w: 5.5, colW: [3.6, 1.9], border: { pt: 0.5, color: RULE }, rowH: 0.35 },
   );
   s.addText(
-    "Suite footprint: 203 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
+    "Suite footprint: 235 automated tests · model 1.27 MB, SHA-pinned (provenance is a test) · " +
       "corpus: 18 captures, 55 annotated positives + adversarial lookalike negatives (unicode dashes, " +
       "digit-spacing evasions, Hindi labels, table splits) · regenerate: npm run bench, npm run bench:latency",
     { x: 7.25, y: 6.25, w: 5.5, h: 1.0, fontFace: FONT, fontSize: 9.5, italic: true, color: SOFT },
@@ -527,7 +527,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   const s = slide();
   title(s, "Engineering discipline", "The boundary is enforced by the build, not by promises");
   bullets(s, [
-    { t: "203 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
+    { t: "235 automated tests across schema, detectors, policy, vault, gate, fusion, perception, server, benchmark and red team.", bold: true },
     { t: "check-egress fails the build if fetch or any network API appears outside three allowlisted transport modules.", },
     { t: "One zod schema package is imported by both client and server: the wire contract cannot drift.", },
     { t: "Model provenance is a test: the vendored ONNX bytes are hashed against the pinned SHA in CI.", },
@@ -538,7 +538,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   s.addShape("rect", { x: 8.15, y: 1.5, w: 4.65, h: 5.3, fill: { color: "1C1F26" } });
   s.addText(
     [
-      { text: "kavach/\n", options: { bold: true, color: "8AB4E8" } },
+      { text: "dravika/\n", options: { bold: true, color: "8AB4E8" } },
       { text: " packages/core       schema | detectors | policy\n                     vault | gate | fusion\n", options: {} },
       { text: " packages/perception compose | tiles | vision\n                     models (SHA-pinned)\n", options: {} },
       { text: " apps/extension      Chrome MV3 + Firefox\n", options: {} },
@@ -567,7 +567,7 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
       [{ text: "Client resources (20%)", options: td },
        { text: "1.27 MB model, dirty-region skip, tier ladder to zero-model Tier 0, single-thread WASM numbers", options: td }],
       [{ text: "End-to-end latency (15%)", options: td },
-       { text: "15.9 ms local p50 vs 175 ms budget, measured and reproducible", options: td }],
+       { text: "71.2 ms local p50 vs 175 ms budget, measured and reproducible", options: td }],
     ],
     { x: 0.55, y: 1.5, w: 12.2, colW: [3.6, 8.6], border: { pt: 0.5, color: RULE }, rowH: 0.52 },
   );
@@ -587,14 +587,14 @@ const td = { fontFace: FONT, fontSize: 10.5, color: INK, valign: "middle" };
   s.addText(
     "Repository:  github.com/BhoomiAgrawal12/browser-vision-agent\n" +
       "Full design report: docs/REPORT.md (61-page PDF included)\n" +
-      "Run it: npm install && npm test  |  node bench/demo/serve.mjs  |  npm run dev -w @kavach/server",
+      "Run it: npm install && npm test  |  node bench/demo/serve.mjs  |  npm run dev",
     { x: 0.85, y: 4.4, w: 11.6, h: 1.2, fontFace: FONT, fontSize: 14, color: "C9D8E8", lineSpacingMultiple: 1.4 },
   );
-  s.addText("Kavach  |  SIH 2026  |  ISRO Space Applications Centre problem statement", {
+  s.addText("Dravika  |  SIH 2026  |  ISRO Space Applications Centre problem statement", {
     x: 0.85, y: 6.6, w: 11.6, h: 0.4, fontFace: FONT, fontSize: 12, color: "9FB4CB" },
   );
 }
 
-const OUT = join(ROOT, "docs", "Kavach-SIH2026-Deck.pptx");
+const OUT = join(ROOT, "docs", "Dravika-SIH2026-Deck.pptx");
 await pptx.writeFile({ fileName: OUT });
 console.log("wrote", OUT);
