@@ -13,6 +13,7 @@ export interface PageMeta {
   lang: string;
   pageKind: string;
   viewport: { w: number; h: number; dpr: number };
+  truncated?: boolean;
 }
 
 export interface PerceiveResponse {
@@ -51,7 +52,7 @@ export interface ExecuteRequest {
 
 export interface ExecuteResponse {
   ok: boolean;
-  error?: "stale_snapshot" | "not_found" | "regrounding_failed" | "unsupported" | "failed";
+  error?: "stale_snapshot" | "not_found" | "regrounding_failed" | "unsupported" | "failed" | "validation_failed";
   detail?: string;
 }
 
@@ -66,16 +67,55 @@ export type ContentResponse =
   | { ok: true }
   | { ok: false; error: string };
 
-/** Promise wrapper over chrome.tabs.sendMessage. */
-export function sendToTab<T extends ContentResponse>(
+function sendMessage<T extends ContentResponse>(
   tabId: number,
   message: ContentRequest,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId: 0 }, (response) => {
       const err = chrome.runtime.lastError;
       if (err) reject(new Error(err.message));
+      else if (!response || typeof response.ok !== "boolean") reject(new Error("The page helper did not return a valid response. Reload the extension and page."));
       else resolve(response as T);
     });
   });
+}
+
+function isMissingReceiver(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /could not establish connection|receiving end does not exist/i.test(message);
+}
+
+/** Send to the page helper, injecting our bundled helper once if the tab lacks it. */
+export async function sendToTab<T extends ContentResponse>(
+  tabId: number,
+  message: ContentRequest,
+): Promise<T> {
+  try {
+    return await sendMessage<T>(tabId, message);
+  } catch (error) {
+    if (!isMissingReceiver(error)) throw error;
+  }
+
+  // A lost execution response must never cause an action to be replayed.
+  if (message.type !== "perceive") throw new Error("Page helper disconnected. Run again to re-perceive before acting.");
+
+  try {
+    if (chrome.scripting?.executeScript) {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    } else if (chrome.tabs.executeScript) {
+      await new Promise<void>((resolve, reject) => {
+        chrome.tabs.executeScript(tabId, { file: "content.js", allFrames: false }, () => {
+          const error = chrome.runtime.lastError;
+          if (error) reject(new Error("Page injection unavailable"));
+          else resolve();
+        });
+      });
+    } else throw new Error("Page injection unavailable");
+    return await sendMessage<T>(tabId, message);
+  } catch (error) {
+    throw new Error(
+      "Dravika couldn't access this tab. Reload Dravika, allow site access, refresh the form, and open its direct URL (not an embedded preview).",
+    );
+  }
 }

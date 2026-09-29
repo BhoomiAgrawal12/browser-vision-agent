@@ -106,6 +106,7 @@ export interface EgressGateOptions {
 const DEFAULT_MAX_PACKET_BYTES = 2 * 1024 * 1024;
 /** Only strong, validated detections block at the last line. */
 const TRIPWIRE_THRESHOLD = 0.8;
+const SAFE_PACKET_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{20,26})$/i;
 
 export async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
@@ -203,13 +204,19 @@ export class EgressGate {
     // text detectors. Its safety is proven by the composer's pixel-level
     // self-check; here we scan everything EXCEPT the image bytes, and
     // independently verify the image hash so the receipt stays honest.
-    const scannable =
-      packet.visual.data_b64 === undefined
-        ? serialized
-        : JSON.stringify({
-            ...packet,
-            visual: { ...packet.visual, data_b64: undefined },
-          });
+    const scannable = JSON.stringify({
+      ...packet,
+      // Random packet IDs, timestamps and hashes can accidentally look like
+      // phone/account numbers when detectors read serialized JSON as prose.
+      // They are machine generated, not user content. Every user/page-derived
+      // field remains in this scan.
+      packet_id: SAFE_PACKET_ID.test(packet.packet_id) ? undefined : packet.packet_id,
+      captured_at_ms: undefined,
+      visual: { ...packet.visual, sha256: undefined, data_b64: undefined },
+    });
+    const vaultScannable = packet.visual.data_b64 === undefined ? serialized : JSON.stringify({
+      ...packet, visual: { ...packet.visual, data_b64: undefined },
+    });
 
     // 2. Tripwire: re-run the full detector suite over everything that is
     //    about to leave. Strong hits mean the policy engine failed; block.
@@ -217,7 +224,7 @@ export class EgressGate {
       threshold: TRIPWIRE_THRESHOLD,
     });
     // 3. Literal vault values in the payload are always a block.
-    const vaultLeaks = this.opts.vault.findLeaks(scannable);
+    const vaultLeaks = this.opts.vault.findLeaks(vaultScannable);
 
     await this.audit({
       stage: "tripwire",

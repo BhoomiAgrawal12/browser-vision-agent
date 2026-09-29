@@ -8,8 +8,8 @@ import { PiiClass, PlaceholderToken } from "./pii.js";
  * raw URLs, cookies and vault contents are unrepresentable by construction.
  */
 
-export const SCP_SCHEMA_ID = "kavach.scp/1.0";
-export const PLAN_SCHEMA_ID = "kavach.plan/1.0";
+export const SCP_SCHEMA_ID = "dravika.scp/1.0";
+export const PLAN_SCHEMA_ID = "dravika.plan/1.0";
 
 export const PrivacyMode = z.enum(["shield", "fortress", "wireframe"]);
 export type PrivacyMode = z.infer<typeof PrivacyMode>;

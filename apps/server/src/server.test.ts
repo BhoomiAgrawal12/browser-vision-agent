@@ -138,6 +138,7 @@ describe("heuristic planner directly", () => {
       source: "dom" as const,
     }));
     const plan = heuristicPlan(p);
-    expect(plan.steps).toHaveLength(5);
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]).toMatchObject({ action: "type", target_element_id: "e1" });
   });
 });

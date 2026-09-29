@@ -115,7 +115,13 @@ function validPlan(): Plan {
 describe("ActionPlan schema and guard", () => {
   it("accepts a valid plan against the fixture packet", () => {
     const plan = ActionPlan.parse(validPlan());
-    expect(guardPlanAgainstPacket(plan, fixturePacket())).toEqual([]);
+    const packet = fixturePacket();
+    packet.elements.find((e) => e.id === "e31")!.state!.disabled = false;
+    expect(guardPlanAgainstPacket(plan, packet)).toEqual([]);
+  });
+
+  it("rejects actions targeting a disabled button before a fresh snapshot enables it", () => {
+    expect(guardPlanAgainstPacket(ActionPlan.parse(validPlan()), fixturePacket())).toContainEqual({ step: 1, problem: "target is disabled or readonly" });
   });
 
   it("rejects a step that types without a value", () => {

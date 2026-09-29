@@ -77,7 +77,7 @@ export const PlanStep = z
         message: `action "${step.action}" requires a target element id`,
       });
     }
-    if (step.action === "type" && !step.value) {
+    if ((step.action === "type" || step.action === "select") && !step.value) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["value"],
@@ -158,6 +158,12 @@ export function guardPlanAgainstPacket(
           step: i,
           problem: `cannot type into role "${el.role}"`,
         });
+      }
+      if (step.action === "select" && el.role !== "combobox" && el.role !== "listbox") {
+        issues.push({ step: i, problem: `cannot select into role "${el.role}"` });
+      }
+      if (TARGETED.has(step.action) && (el.state?.disabled === true || (["type", "select", "clear"].includes(step.action) && el.state?.readonly === true))) {
+        issues.push({ step: i, problem: "target is disabled or readonly" });
       }
       if (
         step.action === "type" &&

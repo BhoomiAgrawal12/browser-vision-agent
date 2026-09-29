@@ -1,6 +1,7 @@
 import type { RawRegion } from "@kavach/core/policy";
 import type { ElementRole, OriginClass, PiiClass } from "@kavach/core/schema";
 import type { PageMeta } from "../shared/messages.js";
+import { choiceLabel, choiceNodes, controlValue, editableTarget, formFeedback, isDisplayed, linkedText, questionOf, questionTitle } from "./form-controls.js";
 
 /**
  * Tier 0 perception: walk the DOM (including open shadow roots), keep the
@@ -10,6 +11,8 @@ import type { PageMeta } from "../shared/messages.js";
 
 const MAX_REGIONS = 300;
 const MAX_TEXT_BLOCKS = 60;
+const identities = new WeakMap<Element, string>();
+let nextIdentity = 0;
 
 export interface Snapshot {
   regions: RawRegion[];
@@ -55,6 +58,9 @@ const NAME_HINTS: [RegExp, PiiClass][] = [
   [/pin.?code|postal|zip/i, "PIN_CODE"],
   [/email|e-mail/i, "EMAIL"],
   [/date.?of.?birth|\bdob\b|birth/i, "DOB"],
+  [/user.?name|\blogin\b/i, "USERNAME"],
+  [/\b(?:full|given|family|first|last)?\s*name\b/i, "PERSON_NAME"],
+  [/\bcity\b|\btown\b|\blocality\b/i, "ADDRESS"],
   [/address/i, "ADDRESS"],
 ];
 
@@ -88,6 +94,12 @@ function structuralClass(el: Element, label: string | null): PiiClass | undefine
 export function roleOf(el: Element): ElementRole {
   const aria = el.getAttribute("role");
   const tag = el.tagName.toLowerCase();
+  if (el instanceof HTMLInputElement && aria === "combobox" &&
+    (el.getAttribute("aria-haspopup") === "dialog" || el.closest('[data-automation-id="dateContainer"]'))) return "textbox";
+  if (aria === "radiogroup") return "combobox";
+  if ((tag === "fieldset" || aria === "group") && el.querySelector('input[type="radio"], [role="radio"]')) return "combobox";
+  if ((tag === "fieldset" || aria === "group") && el.querySelector('input[type="checkbox"], [role="checkbox"]')) return "listbox";
+  if (aria === "combobox" || aria === "listbox") return aria;
   if (el instanceof HTMLInputElement) {
     switch (el.type) {
       case "password":
@@ -122,6 +134,7 @@ export function roleOf(el: Element): ElementRole {
   if (tag === "li") return "listitem";
   if (tag === "dialog") return "dialog";
   if (tag === "progress") return "progressbar";
+  if (el instanceof HTMLElement && el.isContentEditable) return "textbox";
   switch (aria) {
     case "button":
       return "button";
@@ -169,8 +182,26 @@ const INTERACTIVE: ReadonlySet<ElementRole> = new Set([
 /* Label derivation: accessibility name, roughly in spec priority order. */
 
 export function labelOf(el: Element): string | null {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    const nativeLabel = el.labels?.[0]?.textContent?.trim();
+    if (nativeLabel) return nativeLabel;
+  }
+  // Forms' aria-labelledby often contains both an ordinal and a hidden duplicate
+  // of the question. Its explicit title is the stable field identity.
+  if (["textbox", "password", "combobox", "listbox"].includes(roleOf(el))) {
+    const title = questionTitle(el);
+    if (title) {
+      const part = el.getAttribute("aria-label")?.trim();
+      const siblings = questionOf(el)?.querySelectorAll('input:not([type="hidden"]), textarea');
+      if (part && siblings && siblings.length > 1 && /^(?:day|month|year|hour|minute)$/i.test(part)) return `${title} — ${part}`;
+      return title;
+    }
+  }
+  const labelled = linkedText(el, "aria-labelledby").join(" ");
+  if (labelled) return labelled;
   const aria = el.getAttribute("aria-label");
-  if (aria?.trim()) return aria.trim();
+  const generic = /^(?:your answer|enter your answer|enter (?:a |the )?(?:answer|text)|answer|select(?: an? option)?|choose)$/i;
+  if (aria?.trim() && !generic.test(aria.trim())) return aria.trim();
 
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {
@@ -187,7 +218,9 @@ export function labelOf(el: Element): string | null {
       const text = el.labels[0]!.textContent?.trim();
       if (text) return text;
     }
-    if ("placeholder" in el && el.placeholder.trim()) return el.placeholder.trim();
+    const title = questionTitle(el);
+    if (title) return title;
+    if ("placeholder" in el && el.placeholder.trim() && !generic.test(el.placeholder.trim())) return el.placeholder.trim();
   }
 
   if (el instanceof HTMLImageElement && el.alt.trim()) return el.alt.trim();
@@ -200,30 +233,29 @@ export function labelOf(el: Element): string | null {
   if (el instanceof HTMLInputElement && (el.type === "submit" || el.type === "button")) {
     if (el.value.trim()) return el.value.trim();
   }
-  return null;
+  return questionTitle(el) ?? aria?.trim() ?? null;
 }
 
-function validationMessageOf(el: Element): string | undefined {
-  const control =
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLTextAreaElement ||
-    el instanceof HTMLSelectElement
-      ? el
-      : null;
-  const native = control?.validationMessage.trim();
-  if (native) return native;
-  const errorId = el.getAttribute("aria-errormessage");
-  const errorText = errorId
-    ? el.ownerDocument.getElementById(errorId)?.textContent?.trim().replace(/\s+/g, " ")
-    : undefined;
-  return errorText || undefined;
+function customControlValue(el: Element, role: ElementRole): string | undefined {
+  if (role !== "textbox" && role !== "combobox") return undefined;
+  const nested = el.querySelector(
+    'input:not([type="hidden"]), textarea, [contenteditable="true"]',
+  );
+  const control = nested ?? el;
+  if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+    return control.value;
+  }
+  if (control instanceof HTMLSelectElement) return control.selectedOptions[0]?.label ?? control.value;
+  if (control instanceof HTMLElement && control.isContentEditable) {
+    return control.innerText ?? control.textContent ?? "";
+  }
+  return el.getAttribute("aria-valuetext") ?? el.getAttribute("aria-valuenow") ?? undefined;
 }
 
 function isVisible(el: Element): boolean {
   const rect = el.getBoundingClientRect();
   if (rect.width <= 1 || rect.height <= 1) return false;
-  if (rect.bottom < 0 || rect.right < 0) return false;
-  if (rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+  if (!isDisplayed(el)) return false;
   let ancestor: Element | null = el;
   while (ancestor) {
     if (ancestor.getAttribute("aria-hidden") === "true") return false;
@@ -276,10 +308,14 @@ export function classifyOrigin(hostname: string): OriginClass {
 }
 
 function pageKind(doc: Document): string {
+  const hostedForm = /^(forms\.cloud\.microsoft|forms\.office\.com|forms\.office\.net|forms\.microsoft\.com)$/.test(location.hostname) ||
+    (location.hostname === "docs.google.com" && location.pathname.startsWith("/forms/"));
   const forms = doc.forms.length;
-  const inputs = doc.querySelectorAll("input, select, textarea").length;
+  const inputs = doc.querySelectorAll(
+    'input, select, textarea, [role="textbox"], [role="combobox"], [role="radio"], [role="checkbox"]',
+  ).length;
   if (inputs >= 8) return "form_multi_step";
-  if (forms > 0 || inputs > 0) return "form";
+  if (hostedForm || forms > 0 || inputs > 0) return "form";
   if (doc.querySelectorAll("article, main p").length > 5) return "article";
   return "other";
 }
@@ -305,13 +341,15 @@ const TEXT_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", 
 export function perceive(doc: Document): Snapshot {
   const regions: RawRegion[] = [];
   const elements = new Map<string, Element>();
-  let n = 0;
   let textBlocks = 0;
 
   const push = (el: Element, region: Omit<RawRegion, "id">): void => {
     if (regions.length >= MAX_REGIONS) return;
-    n += 1;
-    const id = `e${n}`;
+    let id = identities.get(el);
+    if (!id) {
+      id = `e${++nextIdentity}`;
+      identities.set(el, id);
+    }
     regions.push({ ...region, id });
     elements.set(id, el);
   };
@@ -325,6 +363,11 @@ export function perceive(doc: Document): Snapshot {
     const isTextBlock = TEXT_TAGS.has(tag);
     if (!interactive && !media && !isTextBlock) continue;
     if (!isVisible(el)) continue;
+    // A logical control must appear once, not as both its ARIA wrapper and input.
+    const owner = el.parentElement?.closest('[role="radiogroup"], [role="combobox"], [role="listbox"], [role="textbox"], fieldset, [role="group"]');
+    if (owner && ["textbox", "combobox", "listbox"].includes(roleOf(owner)) && isVisible(owner) &&
+      (interactive || isTextBlock)) continue;
+    if (!interactive && (el.getBoundingClientRect().bottom < 0 || el.getBoundingClientRect().top > window.innerHeight)) continue;
 
     const rect = el.getBoundingClientRect();
     const box: RawRegion["box"] = [rect.x, rect.y, rect.width, rect.height];
@@ -343,16 +386,17 @@ export function perceive(doc: Document): Snapshot {
         } else {
           rawValue = el.value;
           state.filled = el.value.length > 0;
+          if (el instanceof HTMLInputElement && el.validity.badInput) state.filled = true;
         }
         state.disabled = el.disabled;
         if ("required" in el) state.required = el.required;
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
           state.readonly = el.readOnly;
         }
-        if (
-          (el.matches(":invalid") || el.getAttribute("aria-invalid") === "true") &&
-          el.value.length > 0
-        ) {
+        const nativeInvalid =
+          el.matches(":invalid") &&
+          (el.value.length > 0 || (el instanceof HTMLInputElement && el.validity.badInput));
+        if (nativeInvalid || el.getAttribute("aria-invalid") === "true") {
           state.invalid = true;
         }
       } else if (el instanceof HTMLButtonElement) {
@@ -360,11 +404,41 @@ export function perceive(doc: Document): Snapshot {
       } else if (el.getAttribute("aria-disabled") === "true") {
         state.disabled = true;
       }
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+        const ariaChecked = el.getAttribute("aria-checked");
+        const ariaExpanded = el.getAttribute("aria-expanded");
+        const ariaRequired = el.getAttribute("aria-required");
+        const ariaReadonly = el.getAttribute("aria-readonly");
+        if (ariaChecked === "true" || ariaChecked === "false") state.checked = ariaChecked === "true";
+        if (ariaExpanded === "true" || ariaExpanded === "false") state.expanded = ariaExpanded === "true";
+        if (ariaRequired === "true" || ariaRequired === "false") state.required = ariaRequired === "true";
+        if (ariaReadonly === "true" || ariaReadonly === "false") state.readonly = ariaReadonly === "true";
+        if (el.getAttribute("aria-disabled") === "false" && state.disabled === undefined) state.disabled = false;
+        if (role === "textbox" || role === "combobox") {
+          rawValue = customControlValue(el, role);
+          if (rawValue !== undefined) state.filled = rawValue.trim().length > 0;
+        }
+      }
+      const feedback = formFeedback(el);
+      const controlRole = ["textbox", "password", "combobox", "listbox"].includes(role);
+      if (controlRole) {
+        rawValue = controlValue(el);
+        state.filled = rawValue.trim().length > 0;
+        state.invalid = feedback.invalid;
+        const target = editableTarget(el) ?? el;
+        const question = questionOf(el);
+        state.required = state.required === true || target.getAttribute("aria-required") === "true" || el.getAttribute("aria-required") === "true" ||
+          question?.getAttribute("aria-required") === "true" ||
+          Boolean(question?.querySelector('[data-automation-id="requiredStar"], [data-automation-id="required"], .freebirdFormviewerComponentsQuestionBaseRequiredAsterisk'));
+        state.disabled = state.disabled === true || target.matches(":disabled") || el.getAttribute("aria-disabled") === "true" || target.getAttribute("aria-disabled") === "true";
+        state.readonly = (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ? target.readOnly : false) || target.getAttribute("aria-readonly") === "true";
+        state.partially_visible = rect.top < 0 || rect.bottom > window.innerHeight;
+      }
       if (doc.activeElement === el) state.focused = true;
 
       const cls = structuralClass(el, label);
       const risk = riskOf(el, role, label);
-      const validationMessage = validationMessageOf(el);
+      const validationMessage = feedback.message;
       const region: Omit<RawRegion, "id"> = {
         role,
         label,
@@ -381,6 +455,18 @@ export function perceive(doc: Document): Snapshot {
       if (rawValue !== undefined) region.rawValue = rawValue;
       if (cls) region.structuralClass = cls;
       if (validationMessage) region.validationMessage = validationMessage;
+      if (controlRole) {
+        const choices = choiceNodes(el);
+        const target = editableTarget(el);
+        region.control = {
+          kind: el.getAttribute("role") === "radiogroup" || choices.some((node) => node.getAttribute("role") === "radio" || (node instanceof HTMLInputElement && node.type === "radio"))
+            ? "radio" : role === "listbox" ? "checkboxes" : role === "combobox" ? "select" : "text",
+          ...(target instanceof HTMLInputElement ? { inputType: target.type } : {}),
+          help: feedback.help,
+          options: choices.map(choiceLabel),
+        };
+        region.evidence.push("structural:form-control");
+      }
       if (risk) region.risk = risk;
       push(el, region);
     } else if (media) {
@@ -419,6 +505,7 @@ export function perceive(doc: Document): Snapshot {
     lang: doc.documentElement.lang || navigator.language || "en",
     pageKind: pageKind(doc),
     viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
+    truncated: regions.length >= MAX_REGIONS,
   };
 
   return { regions, meta, elements };

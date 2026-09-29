@@ -19,23 +19,24 @@ import {
  *  3. Otherwise -> report done or ask for more context.
  */
 
-const SUBMIT_LABEL = /submit|proceed|continue|next|save|verify|confirm|pay|apply|login|sign in|search/i;
+const SUBMIT_LABEL = /submit|proceed|continue|next|save|verify|confirm|pay|apply|login|sign in|search|start now/i;
 
 function isFillableRole(el: SceneElement): boolean {
-  return el.role === "textbox" || el.role === "password" || el.role === "combobox";
+  return ["textbox", "password", "combobox", "listbox"].includes(el.role);
 }
 
 function isEmptyRequired(el: SceneElement): boolean {
   return (
     isFillableRole(el) &&
-    el.state?.required === true &&
+    (el.state?.required === true || el.evidence.includes("structural:provided-locally")) &&
     el.state?.disabled !== true &&
+    el.state?.readonly !== true &&
     el.value?.kind === "empty"
   );
 }
 
 function isInvalidField(el: SceneElement): boolean {
-  return isFillableRole(el) && el.state?.invalid === true && el.state?.disabled !== true;
+  return isFillableRole(el) && el.state?.invalid === true && el.state?.disabled !== true && el.state?.readonly !== true;
 }
 
 function isActionButton(el: SceneElement): boolean {
@@ -47,7 +48,9 @@ function isActionButton(el: SceneElement): boolean {
   );
 }
 
-const MAX_FILL_STEPS = 5;
+// Fill one answer at a time; the client re-perceives the page before planning
+// the next input so dynamic forms can update their labels and validation.
+const MAX_FILL_STEPS = 1;
 
 export function heuristicPlan(packet: SanitizedContextPacket): ActionPlan {
   const steps: PlanStep[] = [];
@@ -55,7 +58,7 @@ export function heuristicPlan(packet: SanitizedContextPacket): ActionPlan {
   if (invalids.length > 0) {
     for (const el of invalids) {
       steps.push({
-        action: "type",
+        action: el.role === "combobox" || el.role === "listbox" ? "select" : "type",
         target_element_id: el.id,
         value: {
           kind: "user_prompt",
@@ -78,7 +81,7 @@ export function heuristicPlan(packet: SanitizedContextPacket): ActionPlan {
   if (empties.length > 0) {
     for (const el of empties) {
       steps.push({
-        action: "type",
+        action: el.role === "combobox" || el.role === "listbox" ? "select" : "type",
         target_element_id: el.id,
         value: {
           kind: "user_prompt",

@@ -179,6 +179,9 @@ export function shouldUseConfiguredPlanner(
   deterministicPlan: ActionPlanType,
   config: PlannerConfig,
 ): boolean {
+  // Routine form input is ordered by the DOM and validated locally. Letting an
+  // LLM override this step caused skipped questions and premature submissions.
+  if (packet.origin.page_kind.startsWith("form")) return false;
   // Auto mode keeps routine field filling deterministic; use the configured
   // model when the heuristic needs context or reports no useful next action.
   if (config.mode === "heuristic") return false;

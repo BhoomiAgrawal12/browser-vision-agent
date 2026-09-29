@@ -45,6 +45,13 @@ export interface RawRegion {
   visualClass?: PiiClass;
   /** Browser-local validation feedback; never copied into a sanitized packet. */
   validationMessage?: string;
+  /** Browser-only control metadata. Never serialized by the policy engine. */
+  control?: {
+    kind: "text" | "select" | "radio" | "checkboxes";
+    inputType?: string;
+    help?: string;
+    options?: string[];
+  };
   risk?: "state_changing" | "navigation" | "destructive";
 }
 
@@ -319,6 +326,7 @@ export class PolicyEngine {
       return el;
     });
 
+    const intent = this.sanitizeText(taskIntent, mode, used, counters);
     const legend: SanitizeResult["legend"] = {};
     for (const cls of used) {
       legend[legendKey(cls)] = {
@@ -336,7 +344,7 @@ export class PolicyEngine {
       elements,
       legend,
       untrustedText,
-      intent: this.sanitizeText(taskIntent, mode, used, counters),
+      intent,
       summary: {
         regionsRedacted,
         redactedByClass,

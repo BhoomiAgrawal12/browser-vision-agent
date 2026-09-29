@@ -1,7 +1,7 @@
 {
   "name": "@kavach/core",
   "version": "0.1.0",
-  "description": "Pure TypeScript core for Kavach: wire schemas, PII detectors, policy, vault, egress gate, fusion. Zero browser APIs.",
+  "description": "Pure TypeScript core for Dravika: wire schemas, PII detectors, policy, vault, egress gate, fusion. Zero browser APIs.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -10,6 +10,7 @@
     "./schema/fixtures": "./src/schema/fixtures.ts",
     "./detectors": "./src/detectors/index.ts",
     "./policy": "./src/policy/index.ts",
+    "./prompt": "./src/prompt.ts",
     "./vault": "./src/vault/index.ts",
     "./gate": "./src/gate/index.ts",
     "./fusion": "./src/fusion/index.ts"

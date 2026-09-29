@@ -14,6 +14,27 @@ describe("Tier 0 DOM perception", () => {
     dom.close();
   });
 
+  it("keeps offscreen fields and stable IDs when earlier content appears", () => {
+    const { document } = dom;
+    document.body.innerHTML = '<input aria-label="Name" required><input aria-label="City" aria-required="true">';
+    const name = document.querySelector('input')!;
+    const city = document.querySelectorAll('input')[1]!;
+    setRect(city, { x: 10, y: 1800, width: 100, height: 30 });
+    const before = perceive(document as unknown as Document);
+    name.before(document.createElement('button'));
+    const after = perceive(document as unknown as Document);
+    expect(after.regions.find((r) => r.label === "City")).toMatchObject({ id: before.regions.find((r) => r.label === "City")!.id, state: { required: true, partially_visible: true } });
+  });
+
+  it("uses the real Microsoft question title and treats its calendar combo as text", () => {
+    const { document } = dom;
+    document.body.innerHTML = `<div data-automation-id="questionItem"><div id="q"><span data-automation-id="questionTitle"><span data-automation-id="questionOrdinal">1.</span><span class="text-format-content">Date</span><span data-automation-id="requiredStar"></span><span aria-hidden="true">Date.</span></span></div><div data-automation-id="dateContainer"><input role="combobox" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="q" placeholder="Please input date (M/d/yyyy)"></div><div role="alert" style="display:none">Old error</div></div>`;
+    const regions = perceive(document as unknown as Document).regions;
+    const date = regions.find((r) => r.control)!;
+    expect(date).toMatchObject({ role: "textbox", label: "Date", state: { required: true, invalid: false }, control: { kind: "text", help: "Please input date (M/d/yyyy)" } });
+    expect(date.validationMessage).toBeUndefined();
+  });
+
   it("walks labelled controls and open shadow roots without hiding local raw values", () => {
     const { document } = dom;
     document.body.innerHTML = `
@@ -43,6 +64,79 @@ describe("Tier 0 DOM perception", () => {
     expect(otpRegion).toMatchObject({ structuralClass: "OTP" });
     expect(submitRegion).toMatchObject({ role: "button", risk: "state_changing" });
     expect(snapshot.elements.size).toBe(snapshot.regions.length);
+  });
+
+  it("perceives Microsoft Forms question titles and ARIA text controls", () => {
+    const { document } = dom;
+    document.body.innerHTML = `
+      <div data-automation-id="questionItem">
+        <span data-automation-id="questionTitle">Work email</span>
+        <div role="textbox" contenteditable="true" aria-required="true"></div>
+      </div>
+      <div data-automation-id="questionItem">
+        <span data-automation-id="questionTitle">Preferred contact method</span>
+        <div role="radio" aria-label="Email" aria-checked="true" aria-required="true"></div>
+      </div>
+    `;
+    const textbox = document.querySelector('[role="textbox"]')!;
+    const radio = document.querySelector('[role="radio"]')!;
+    setRect(textbox);
+    setRect(radio, { x: 0, y: 40, width: 20, height: 20 });
+
+    const snapshot = perceive(document as unknown as Document);
+    const email = snapshot.regions.find((region) => region.role === "textbox");
+    const choice = snapshot.regions.find((region) => region.role === "radio");
+
+    expect(email).toMatchObject({
+      label: "Work email",
+      structuralClass: "EMAIL",
+      state: { required: true, filled: false },
+    });
+    expect(choice).toMatchObject({
+      label: "Email",
+      state: { required: true, checked: true },
+    });
+    expect(snapshot.meta.pageKind).toBe("form");
+  });
+
+  it("captures Google Forms linked validation advice", () => {
+    const { document } = dom;
+    document.body.innerHTML = `
+      <div class="freebirdFormviewerComponentsQuestionBaseRoot" role="listitem">
+        <label for="date-answer">Date of birth</label>
+        <input id="date-answer" aria-invalid="true" aria-describedby="date-error" value="31/31/2025">
+        <div id="date-error" role="alert">Enter a real date in MM/DD/YYYY format.</div>
+      </div>
+    `;
+    const input = document.querySelector("#date-answer")!;
+    setRect(input);
+
+    const field = perceive(document as unknown as Document).regions.find((region) => region.label === "Date of birth");
+
+    expect(field).toMatchObject({
+      state: { invalid: true, filled: true },
+      validationMessage: "Enter a real date in MM/DD/YYYY format.",
+    });
+  });
+
+  it("captures Microsoft Forms inline ARIA validation advice", () => {
+    const { document } = dom;
+    document.body.innerHTML = `
+      <div data-automation-id="questionItem">
+        <span data-automation-id="questionTitle">Start date</span>
+        <div role="textbox" contenteditable="true" aria-invalid="true">31/31/2025</div>
+        <div role="alert">Enter the date using the format shown in the question.</div>
+      </div>
+    `;
+    const textbox = document.querySelector('[role="textbox"]')!;
+    setRect(textbox);
+
+    const field = perceive(document as unknown as Document).regions.find((region) => region.label === "Start date");
+
+    expect(field).toMatchObject({
+      state: { invalid: true, filled: true },
+      validationMessage: "Enter the date using the format shown in the question.",
+    });
   });
 
   it("omits hidden content and masks every media box until vision explains it", () => {

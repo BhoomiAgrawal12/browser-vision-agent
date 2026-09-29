@@ -60,12 +60,24 @@ describe("Vault", () => {
     expect(v.findLeaks("price is 123 rupees")).toEqual([]);
   });
 
+  it("findLeaks protects remembered prompt values without exposing them", () => {
+    const v = new Vault();
+    v.remember("field|email", "ramesh@example.test");
+
+    const leaks = v.findLeaks("planner response: ramesh@example.test");
+
+    expect(leaks).toEqual(["VAULT:REMEMBERED#1"]);
+    expect(JSON.stringify(leaks)).not.toContain("ramesh@example.test");
+  });
+
   it("wipe clears everything and restarts ordinals", () => {
     const v = new Vault();
     v.mint("EMAIL", "a@x.com");
+    v.remember("field|email", "a@x.com");
     v.wipe();
     expect(v.size).toBe(0);
     expect(v.mint("EMAIL", "z@x.com")).toBe("PII:EMAIL#1");
+    expect(v.recall("field|email")).toBeUndefined();
   });
 
   it("stats counts by class without exposing values", () => {
@@ -78,5 +90,12 @@ describe("Vault", () => {
     expect(s.byClass.EMAIL).toBe(2);
     expect(s.byClass.AADHAAR).toBe(1);
     expect(JSON.stringify(s)).not.toContain("@x.com");
+  });
+
+  it("detects JSON-escaped remembered values as well as literal matches", () => {
+    const v = new Vault();
+    v.remember("note", 'private "quoted"\nanswer');
+    expect(v.findLeaks(JSON.stringify({ value: 'private "quoted"\nanswer' }))).toHaveLength(1);
+    expect(v.findLeaks(JSON.stringify({ value: "PII:EMAIL#1" }))).toEqual([]);
   });
 });

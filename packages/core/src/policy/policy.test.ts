@@ -80,7 +80,7 @@ describe("PolicyEngine: value analysis without structural hints", () => {
     expect(JSON.stringify(out)).not.toContain("4105");
   });
 
-  it("leaves a harmless value visible in shield mode", () => {
+  it("leaves a harmless unclassified value visible in shield mode", () => {
     const out = engine.sanitize(
       [region({ id: "e1", rawValue: "2 packets of rice" })],
       "shield",

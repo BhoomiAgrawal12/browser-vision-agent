@@ -120,12 +120,12 @@ describe("Tier 0 end to end: demo form through policy, gate and live server", ()
     const registry = defaultRegistry();
     const policy = new PolicyEngine(registry, vault, "2026.09.1");
     const receipts: PrivacyReceipt[] = [];
-    let onWire = "";
+    const wirePackets: string[] = [];
 
     const gate = new EgressGate({
       transport: {
         post: async (serialized) => {
-          onWire = serialized;
+          wirePackets.push(serialized);
           const res = await fetch(`${base}/plan`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -148,19 +148,38 @@ describe("Tier 0 end to end: demo form through policy, gate and live server", ()
     const packet = buildPacket(sanitized);
     const plan = await gate.send(packet);
 
-    // 1. The plan is useful: it asks the user for the empty required fields.
+    // 1. The plan requests one empty required field at a time.
     const fillTargets = plan.steps
       .filter((s) => s.action === "type")
       .map((s) => s.target_element_id);
-    expect(fillTargets).toContain("e8"); // street address
-    expect(fillTargets).toContain("e9"); // city
-    expect(fillTargets).toContain("e10"); // pin code
+    expect(fillTargets).toEqual(["e8"]); // street address first
     for (const step of plan.steps) {
       expect(step.value?.kind).toBe("user_prompt");
     }
 
+    const afterStreet = demoFormRegions().map((r) =>
+      r.id === "e8" ? { ...r, state: { filled: true, required: true }, rawValue: "12 MG Road" } : r,
+    );
+    const cityPlan = await gate.send(
+      buildPacket(policy.sanitize(afterStreet, "shield", "Help me complete this form")),
+    );
+    expect(cityPlan.steps).toMatchObject([
+      { action: "type", target_element_id: "e9", value: { kind: "user_prompt" } },
+    ]);
+
+    const afterCity = afterStreet.map((r) =>
+      r.id === "e9" ? { ...r, state: { filled: true, required: true }, rawValue: "Ahmedabad" } : r,
+    );
+    const pinPlan = await gate.send(
+      buildPacket(policy.sanitize(afterCity, "shield", "Help me complete this form")),
+    );
+    expect(pinPlan.steps).toMatchObject([
+      { action: "type", target_element_id: "e10", value: { kind: "user_prompt" } },
+    ]);
+
     // 2. Zero raw PII crossed the wire. The strings the user could be hurt
     //    by are simply absent from the payload the server received.
+    const onWire = wirePackets.join("\n");
     expect(onWire).not.toContain("999941057058");
     expect(onWire).not.toContain("9999 4105 7058");
     expect(onWire).not.toContain("ramesh.kumar@gmail.com");
@@ -186,7 +205,7 @@ describe("Tier 0 end to end: demo form through policy, gate and live server", ()
     expect(vault.resolve("PII:EMAIL#1")).toBe("ramesh.kumar@gmail.com");
 
     // 6. The receipt records the send faithfully.
-    expect(receipts).toHaveLength(1);
+    expect(receipts).toHaveLength(3);
     expect(receipts[0]!).toMatchObject({
       outcome: "sent",
       verification: { tripwire_passed: true, vault_scan_passed: true },

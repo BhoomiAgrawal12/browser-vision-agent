@@ -31,6 +31,7 @@ export function installDom(url = "https://forms.example.test/viewform"): Window 
     "HTMLInputElement",
     "HTMLTextAreaElement",
     "HTMLSelectElement",
+    "HTMLOptionElement",
     "HTMLImageElement",
     "HTMLCanvasElement",
     "HTMLIFrameElement",

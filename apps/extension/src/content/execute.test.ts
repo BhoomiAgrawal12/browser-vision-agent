@@ -88,4 +88,54 @@ describe("browser execution boundaries", () => {
     input.disabled = true;
     expect(await executeStep(browserInput, { action: "clear" })).toMatchObject({ ok: false, error: "failed" });
   });
+
+  it("types into Microsoft Forms contenteditable textboxes", async () => {
+    const textbox = dom.document.createElement("div");
+    textbox.setAttribute("role", "textbox");
+    textbox.setAttribute("contenteditable", "true");
+    dom.document.body.append(textbox);
+    setRect(textbox);
+    let inputEvents = 0;
+    textbox.addEventListener("input", () => {
+      inputEvents += 1;
+    });
+
+    const result = await executeStep(textbox as unknown as Element, {
+      action: "type",
+      text: "example response",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(textbox.textContent).toBe("example response");
+    expect(inputEvents).toBe(1);
+  });
+
+  it("selects a visible ARIA combobox option by its accessible label", async () => {
+    const combobox = dom.document.createElement("div");
+    combobox.setAttribute("role", "combobox");
+    combobox.setAttribute("aria-expanded", "true");
+    combobox.setAttribute("aria-controls", "contact-options");
+    const list = dom.document.createElement("div");
+    list.id = "contact-options";
+    const option = dom.document.createElement("div");
+    option.setAttribute("role", "option");
+    option.textContent = "Email";
+    list.append(option);
+    dom.document.body.append(combobox, list);
+    setRect(combobox);
+    setRect(option, { x: 0, y: 40, width: 80, height: 24 });
+    let selected = false;
+    option.addEventListener("click", () => {
+      selected = true;
+      option.setAttribute("aria-selected", "true");
+    });
+
+    const result = await executeStep(combobox as unknown as Element, {
+      action: "select",
+      optionLabel: "Email",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(selected).toBe(true);
+  });
 });

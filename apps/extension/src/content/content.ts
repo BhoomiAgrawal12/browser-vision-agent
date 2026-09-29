@@ -13,7 +13,10 @@ let snapshotId = 0;
 
 const TARGETED = new Set(["click", "type", "clear", "select", "focus"]);
 
-chrome.runtime.onMessage.addListener(
+// Reinjection must not install a second executor for the same document.
+const host = globalThis as typeof globalThis & { __dravikaListener?: Parameters<typeof chrome.runtime.onMessage.addListener>[0] };
+if (host.__dravikaListener) chrome.runtime.onMessage.removeListener(host.__dravikaListener);
+const listener: Parameters<typeof chrome.runtime.onMessage.addListener>[0] =
   (message: ContentRequest, _sender, sendResponse: (r: ContentResponse) => void) => {
     void (async () => {
       try {
@@ -84,5 +87,6 @@ chrome.runtime.onMessage.addListener(
       }
     })();
     return true; // async sendResponse
-  },
-);
+  };
+host.__dravikaListener = listener;
+chrome.runtime.onMessage.addListener(listener);
