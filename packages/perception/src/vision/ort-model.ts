@@ -8,7 +8,7 @@ import { ULTRAFACE_H, ULTRAFACE_W, type FaceModel } from "./ultraface.js";
  */
 
 export interface OrtNamespace {
-  env: { wasm: { numThreads: number; wasmPaths?: string } };
+  env: { wasm: { numThreads: number; wasmPaths?: string }; webgpu?: { adapter?: unknown } };
   Tensor: new (
     type: "float32",
     data: Float32Array,
@@ -17,7 +17,7 @@ export interface OrtNamespace {
   InferenceSession: {
     create(
       source: string | Uint8Array,
-      options?: { executionProviders?: string[] },
+      options?: { executionProviders?: string[]; logSeverityLevel?: number },
     ): Promise<{
       run(feeds: Record<string, unknown>): Promise<
         Record<string, { data: unknown }>
@@ -31,6 +31,8 @@ export interface OrtFaceModelOptions {
   wasmPaths?: string;
   /** Try these in order; ort falls through automatically. */
   executionProviders?: string[];
+  /** Injected in tests; null disables GPU probing. */
+  gpu?: { requestAdapter(): Promise<unknown | null> } | null;
 }
 
 export async function createOrtFaceModel(
@@ -50,10 +52,23 @@ export async function createOrtFaceModel(
   let session: Session | undefined;
   let backend: "webgpu" | "wasm" | undefined;
   const create = async (provider: "webgpu" | "wasm"): Promise<Session> => {
-    return ort.InferenceSession.create(modelSource, { executionProviders: [provider] });
+    return ort.InferenceSession.create(modelSource, {
+      executionProviders: [provider],
+      // The vendored model has non-fatal initializer optimization warnings.
+      // Keep those out of the browser's extension error log; actual errors remain visible.
+      logSeverityLevel: 3,
+    });
   };
   for (const provider of providers) {
     try {
+      if (provider === "webgpu") {
+        const gpu = options.gpu !== undefined ? options.gpu
+          : (globalThis.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown | null> } } | undefined)?.gpu;
+        const adapter = await gpu?.requestAdapter();
+        if (!adapter) continue;
+        // Reuse the verified adapter instead of asking ORT to discover one again.
+        if (ort.env.webgpu) ort.env.webgpu.adapter = adapter;
+      }
       session = await create(provider);
       backend = provider;
       break;
