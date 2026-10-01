@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { crc32 } from "node:zlib";
 import { BarcodeFormat, QRCodeWriter } from "@zxing/library";
 import { makeServer } from "../apps/server/src/server.ts";
-import { EgressGate } from "@kavach/core/gate";
+import { EgressGate, sha256Hex } from "@kavach/core/gate";
 import { defaultRegistry } from "@kavach/core/detectors";
 import { Vault } from "@kavach/core/vault";
 
@@ -24,7 +24,7 @@ const server = createServer((req, res) => {
   }
   if (req.url === "/ui") {
     res.setHeader("content-type", "text/html");
-    res.end('<input id="media-file" type="file"><span id="media-file-name">No file selected</span><span id="media-file-type" hidden></span><div id="media-page-row" hidden><input id="media-page" value="1"></div><button id="media-inspect">Inspect locally</button><button id="media-send" disabled>Send sanitized page</button><button id="media-clear">Clear</button><span id="media-status"></span><img id="media-original" hidden><img id="media-sanitized" hidden><pre id="media-report"></pre><script src="/ort/ort.min.js"></script><script type="module" src="/media.js"></script>');
+    res.end('<span id="media-status"></span><img id="media-original" hidden><img id="media-sanitized" hidden><pre id="media-report"></pre><script src="/ort/ort.min.js"></script><script type="module">import {createMediaPreview} from "/media.js"; window.mediaPreview = createMediaPreview();</script>');
     return;
   }
   const path = req.url?.replace(/^\//, "") ?? "";
@@ -103,8 +103,15 @@ function assertFlatFill(pixel, label) {
 }
 try {
   const page = await browser.newPage();
+  page.setDefaultTimeout(60000);
   page.on("pageerror", (e) => console.error("page error:", e.message));
-  page.on("console", (m) => { if (m.type() === "error" && !m.text().includes("Initializer ")) console.error("browser console:", m.text()); });
+  const initializerWarnings = [];
+  const detectorErrors = [];
+  page.on("console", (m) => {
+    if (m.text().includes("Initializer ") && m.text().includes("appears in graph inputs")) initializerWarnings.push(m.text());
+    if (/No available adapters|MultiFormatReader: non-ReaderException/.test(m.text())) detectorErrors.push(m.text());
+    if (m.type() === "error" && !m.text().includes("Initializer ")) console.error("browser console:", m.text());
+  });
   await page.goto(url);
   const image = await page.evaluate(() => {
     const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 140;
@@ -142,8 +149,11 @@ try {
   assert.ok(!original.equals(masked), "raster must be newly generated and masked");
   assert.ok(!JSON.stringify(result.packet).includes("private@example.test"), "raw OCR PII must stay local");
   assert.ok(JSON.stringify(result.packet).includes("PII:EMAIL#1"), "packet must preserve typed redaction meaning");
+  assert.ok(result.packet.visual.data_b64.length <= 1_500_000, "raster must fit the Sanitized Context Packet limit");
   assert.ok(result.report.ocr_detected_classes.includes("EMAIL"));
   assert.ok(JSON.stringify(result.packet.untrusted_text).includes("PII:EMAIL#"));
+  assert.equal(initializerWarnings.length, 0, "non-fatal ONNX initializer warnings should stay out of extension errors");
+  assert.equal(result.report.face_backend, "wasm", "GPU-disabled devices must use the CPU backend");
   await sendVerified(result.packet, ["private@example.test", "private.png"]);
   console.log(`PASS browser image: selective local PII masking preserves safe pixels (${result.report.elapsed_ms}ms, ${Buffer.byteLength(JSON.stringify(result.packet))} outbound bytes)`);
   const jpeg = await page.evaluate(() => {
@@ -193,26 +203,140 @@ try {
   assertFlatFill(jpegResult.phonePixel, "JPEG phone");
   assert.ok(jpegResult.namePixelMatch > 0.98, "name pixels should remain visible in Shield mode");
   assert.ok(!JSON.stringify(jpegResult.packet).includes("Demo Person"));
+  assert.ok(jpegResult.packet.visual.data_b64.length <= 1_500_000);
   await sendVerified(jpegResult.packet, ["Demo Person", "9999 4105 7058", "9876543210", "private-photo.jpg"]);
-  console.log(`PASS browser JPEG: name retained, Aadhaar/phone masked, safe pixels preserved (${jpegResult.report.elapsed_ms}ms)`);
+   console.log(`PASS browser JPEG: name retained, Aadhaar/phone masked, safe pixels preserved (${jpegResult.report.elapsed_ms}ms)`);
+   const identityFallback = await page.evaluate(async (base64) => {
+     const { inspectLocalMedia } = await import("/media-pipeline.js");
+     const result = await inspectLocalMedia(new File([Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))], "identity-upload.jpg", { type: "image/jpeg" }), 1, { identityDocumentHint: true });
+     const bitmap = await createImageBitmap(result.sanitized);
+     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+     const ctx = canvas.getContext("2d", { willReadFrequently: true }); ctx.drawImage(bitmap, 0, 0);
+     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+     let allBlack = true;
+     for (let i = 0; i < pixels.length; i += 4) if (Math.abs(pixels[i]-16)>2 || Math.abs(pixels[i+1]-18)>2 || Math.abs(pixels[i+2]-22)>2 || pixels[i+3]!==255) allBlack = false;
+     bitmap.close(); return { report: result.report, allBlack };
+   }, jpeg);
+   assert.equal(identityFallback.report.barcode_regions, 0);
+   assert.equal(identityFallback.report.identity_document_hint, true);
+   assert.equal(identityFallback.allBlack, true, "identity uploads with an unresolved QR must not leave unverified pixels visible");
+   assert.match(identityFallback.report.treatment, /QR\/code region could not be located/);
+   console.log("PASS identity upload fallback: no located QR means the whole identity image is withheld");
+  const largeRaster = await page.evaluate(async () => {
+    const width = 2100, height = 1600;
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const pixels = ctx.createImageData(width, height);
+    let seed = 0x13579bdf;
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const noise = seed >>> 24;
+      pixels.data[i] = noise;
+      pixels.data[i + 1] = (noise * 3 + 17) & 255;
+      pixels.data[i + 2] = (noise * 7 + 31) & 255;
+      pixels.data[i + 3] = 255;
+    }
+    ctx.putImageData(pixels, 0, 0);
+    ctx.fillStyle = "white"; ctx.fillRect(0, 0, 760, 135);
+    ctx.fillStyle = "black"; ctx.font = "bold 38px Arial"; ctx.fillText("Aadhaar: 9999 4105 7058", 22, 86);
+    const { encodeVerifiedRaster } = await import("/media-pipeline.js");
+    const raster = await encodeVerifiedRaster(ctx.getImageData(0, 0, width, height), [{ box: [18, 45, 780, 62], label: "PII:AADHAAR" }]);
+    let binary = "";
+    for (let i = 0; i < raster.bytes.length; i += 32768) binary += String.fromCharCode(...raster.bytes.subarray(i, i + 32768));
+    return { data_b64: btoa(binary), w: raster.image.width, h: raster.image.height, bytes: raster.bytes.length, resized: raster.resized, boxes: raster.boxes, labels: raster.labels };
+  });
+  assert.equal(largeRaster.resized, true, "large raster should be downscaled when needed for the wire cap");
+  assert.ok(largeRaster.bytes <= 1_000_000);
+  assert.ok(largeRaster.data_b64.length <= 1_500_000);
+  assert.ok(largeRaster.w < 2100);
+  assert.ok(largeRaster.labels.some((label) => label.includes("PII:AADHAAR")));
+  const largePacket = structuredClone(jpegResult.packet);
+  const packetScaleX = largeRaster.w / largePacket.visual.w;
+  const packetScaleY = largeRaster.h / largePacket.visual.h;
+  largePacket.device.viewport = { ...largePacket.device.viewport, w: largeRaster.w, h: largeRaster.h };
+  largePacket.elements = largePacket.elements.map((element) => ({
+    ...element,
+    box: [element.box[0] * packetScaleX, element.box[1] * packetScaleY, element.box[2] * packetScaleX, element.box[3] * packetScaleY],
+  }));
+  largePacket.visual = {
+    ...largePacket.visual,
+    w: largeRaster.w,
+    h: largeRaster.h,
+    sha256: await sha256Hex(largeRaster.data_b64),
+    data_b64: largeRaster.data_b64,
+    regions_redacted: largeRaster.boxes.length,
+  };
+  await sendVerified(largePacket, ["9999 4105 7058", "large-id-photo.jpg"]);
+  console.log("PASS browser large raster: resized below packet cap, redaction verified, actual PNG sent through the gate");
   const qrMatrix = new QRCodeWriter().encode("qr-private-payload-8753", BarcodeFormat.QR_CODE, 180, 180, new Map());
   const qrImage = await page.evaluate((bits) => {
-    const canvas = document.createElement("canvas"); canvas.width = bits[0].length; canvas.height = bits.length;
+    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 240;
     const ctx = canvas.getContext("2d"); ctx.fillStyle = "white"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle = "black";
-    bits.forEach((row,y)=>row.forEach((bit,x)=>{if(bit)ctx.fillRect(x,y,1,1);}));
+    ctx.font = "bold 20px Arial";
+    ctx.fillText("Aadhaar: 9999 4105 7058", 18, 50);
+    bits.forEach((row,y)=>row.forEach((bit,x)=>{if(bit)ctx.fillRect(x+450,y+30,1,1);}));
     return canvas.toDataURL("image/png").split(",")[1];
   }, Array.from({length:qrMatrix.height},(_,y)=>Array.from({length:qrMatrix.width},(_,x)=>qrMatrix.get(x,y))));
   const qrResult = await page.evaluate(async (base64) => {
     const data = Uint8Array.from(atob(base64), c=>c.charCodeAt(0));
     const { inspectLocalMedia } = await import("/media-pipeline.js");
     const media=await inspectLocalMedia(new File([data],"qr.png",{type:"image/png"}));
-    return {packet:media.packet,report:media.report};
+    const original = await createImageBitmap(media.original);
+    const sanitized = await createImageBitmap(media.sanitized);
+    const canvas = new OffscreenCanvas(640, 240);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(original, 0, 0); const raw = ctx.getImageData(0, 0, 640, 240).data;
+    ctx.drawImage(sanitized, 0, 0); const safe = ctx.getImageData(0, 0, 640, 240).data;
+    let fullCodeMasked = true;
+    for (let y = 30; y < 210; y++) for (let x = 450; x < 630; x++) {
+      const i = (y * 640 + x) * 4;
+      if (raw[i] < 40 && !([16,18,22].every((value, channel) => Math.abs(safe[i+channel] - value) <= 2) && safe[i+3] === 255)) fullCodeMasked = false;
+    }
+    original.close(); sanitized.close();
+    return {packet:media.packet,report:media.report,fullCodeMasked};
   }, qrImage);
   assert.equal(qrResult.report.barcode_regions,1);
+  assert.ok(qrResult.report.redactions_by_class.AADHAAR >= 1);
+  assert.equal(qrResult.fullCodeMasked, true, "every QR module, including outer finder/data modules, must be blacked out");
   assert.ok(!JSON.stringify(qrResult.packet).includes("qr-private-payload-8753"));
   assert.ok(JSON.stringify(qrResult.packet).includes("PII:QR_BARCODE#1"));
-  await sendVerified(qrResult.packet,["qr-private-payload-8753"]);
-  console.log("PASS browser QR: payload decoded locally, discarded, and absent from the packet");
+  await sendVerified(qrResult.packet,["qr-private-payload-8753", "9999 4105 7058"]);
+   console.log("PASS browser Aadhaar + QR: Aadhaar number and entire QR blacked out; decoded payload discarded and absent from the packet");
+   const damagedCode = new QRCodeWriter().encode("damaged-private-code-8753", BarcodeFormat.QR_CODE, 180, 180, new Map());
+   const denseCode = new QRCodeWriter().encode("secure-synthetic-" + "a1B2c3D4".repeat(150), BarcodeFormat.QR_CODE, 300, 300, new Map());
+   const hardQr = await page.evaluate(async ({ damaged, dense }) => {
+     const canvas = document.createElement("canvas"); canvas.width = 900; canvas.height = 430;
+     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+     ctx.fillStyle = "white"; ctx.fillRect(0, 0, 900, 430);
+     ctx.fillStyle = "black"; ctx.font = "bold 22px Arial"; ctx.fillText("Aadhaar: 9999 4105 7058", 18, 38);
+     damaged.forEach((row, y) => row.forEach((bit, x) => { if (bit) ctx.fillRect(x+25, y+100, 1, 1); }));
+     dense.forEach((row, y) => row.forEach((bit, x) => { if (bit) ctx.fillRect(x+480, y+80, 1, 1); }));
+     ctx.fillStyle = "white"; ctx.fillRect(97, 172, 70, 70);
+     const source = ctx.getImageData(0, 0, 900, 430).data;
+     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+     const { inspectLocalMedia } = await import("/media-pipeline.js");
+     const result = await inspectLocalMedia(new File([blob], "dense-damaged-qr.png", { type: "image/png" }));
+     const bitmap = await createImageBitmap(result.sanitized);
+     const safeCanvas = new OffscreenCanvas(900, 430);
+     const safeCtx = safeCanvas.getContext("2d", { willReadFrequently: true }); safeCtx.drawImage(bitmap, 0, 0);
+     const safe = safeCtx.getImageData(0, 0, 900, 430).data;
+     let allQrBlack = true;
+     for (const [left, top, size] of [[25,100,180], [480,80,300]]) {
+       for (let y = top; y < top+size; y++) for (let x = left; x < left+size; x++) {
+         const i = (y*900+x)*4;
+         if (source[i] < 40 && ![16,18,22].every((value, channel) => Math.abs(safe[i+channel]-value) <= 2)) allQrBlack = false;
+       }
+     }
+     bitmap.close();
+     return { allQrBlack, packet: result.packet, report: result.report };
+   }, {
+     damaged: Array.from({length:180}, (_, y) => Array.from({length:180}, (_, x) => damagedCode.get(x,y))),
+     dense: Array.from({length:300}, (_, y) => Array.from({length:300}, (_, x) => denseCode.get(x,y))),
+   });
+   assert.ok(hardQr.report.barcode_regions >= 1);
+   assert.equal(hardQr.allQrBlack, true, "damaged and dense QR pixels must be blacked even without a readable payload");
+   await sendVerified(hardQr.packet, ["damaged-private-code-8753", "secure-synthetic-", "9999 4105 7058", "dense-damaged-qr.png"]);
+   console.log("PASS difficult QR media: damaged data and dense secure-QR-sized code fully masked in the encoded preview");
   const tagged = await page.evaluate(async (data) => {
     const { inspectLocalMedia } = await import("/media-pipeline.js");
     const media = await inspectLocalMedia(new File([Uint8Array.from(data)], "gps-photo.png", { type: "image/png" }));
@@ -222,12 +346,13 @@ try {
   assert.ok(!JSON.stringify(tagged.packet).includes("GPS_LOCATION_SECRET"));
   await sendVerified(tagged.packet, ["GPS_LOCATION_SECRET", "gps-photo.png"]);
   console.log("PASS browser metadata: embedded PNG author/GPS metadata removed and absent from outbound packet");
-  const scannedJpeg = Buffer.from(await page.evaluate(() => {
+   const scannedJpeg = Buffer.from(await page.evaluate((bits) => {
     const canvas=document.createElement("canvas"); canvas.width=640; canvas.height=220;
     const ctx=canvas.getContext("2d"); ctx.fillStyle="white"; ctx.fillRect(0,0,640,220);
-    ctx.fillStyle="black"; ctx.font="bold 18px Arial"; ctx.fillText("Government Identity Card",15,32); ctx.fillText("Aadhaar: 9999 4105 7058",15,69); ctx.fillText("Email: media@example.test",15,106); ctx.fillText("Phone: 9876543210",15,143); ctx.fillText("PAN: ABCPE1234F",15,180);
-    return canvas.toDataURL("image/jpeg",1).split(",")[1];
-  }), "base64");
+     ctx.fillStyle="black"; ctx.font="bold 24px Arial"; ctx.fillText("Government Identity Card",15,32); ctx.fillText("Aadhaar: 9999 4105 7058",15,69); ctx.fillText("Email: media@example.test",15,106); ctx.fillText("Phone: 9876543210",15,143); ctx.fillText("PAN: ABCPE1234F",15,180);
+     bits.forEach((row,y)=>row.forEach((bit,x)=>{if(bit)ctx.fillRect(x+450,y+20,1,1);}));
+     return canvas.toDataURL("image/jpeg",1).split(",")[1];
+   }, Array.from({length:qrMatrix.height},(_,y)=>Array.from({length:qrMatrix.width},(_,x)=>qrMatrix.get(x,y)))), "base64");
   const pdfBytes = createPdf(scannedJpeg);
   const pdf = await page.evaluate(async (data) => {
     const { inspectLocalMedia } = await import("/media-pipeline.js");
@@ -247,7 +372,10 @@ try {
   assert.ok(pdf.report.redactions_by_class.EMAIL >= 1);
   assert.ok(pdf.report.redactions_by_class.AADHAAR >= 1);
   assert.ok(pdf.report.redactions_by_class.PHONE_IN >= 1);
-  assert.ok(pdf.report.redactions_by_class.PAN >= 1);
+   assert.ok(pdf.report.redactions_by_class.PAN >= 1);
+   assert.equal(pdf.report.barcode_regions, 1, "QR must be detected inside a scanned PDF page");
+   assert.ok(pdf.report.redactions_by_class.QR_BARCODE >= 1);
+   assert.ok(JSON.stringify(pdf.packet).includes("PII:QR_BARCODE#"));
   assert.equal(pdf.report.identity_document_detected, true);
   assert.ok(pdf.packet.elements.some((e) => e.value?.kind === "redacted" && e.value.token === "PII:ID_DOCUMENT#1"));
   assert.ok(!JSON.stringify(pdf.packet).includes("media@example.test"));
@@ -262,28 +390,41 @@ try {
   assert.ok(JSON.stringify(pdf.packet).includes("PII:PHONE_IN#"));
   assert.ok(JSON.stringify(pdf.packet).includes("PII:PAN#"));
   assert.ok(!Buffer.from(pdf.original).equals(Buffer.from(pdf.sanitized)));
-  await sendVerified(pdf.packet, ["media@example.test", "hidden@example.test", "9999 4105 7058", "9876543210", "ABCPE1234F", "Local Secret", "private.pdf", "private attachment payload", "private annotation payload", "private script"]);
-  console.log(`PASS browser PDF: local render/OCR, metadata inspection, fully masked PNG, no original PDF or extracted text in packet (${pdf.report.elapsed_ms}ms, ${Buffer.byteLength(JSON.stringify(pdf.packet))} outbound bytes)`);
-   await page.goto(url + "/ui");
-   await page.locator("#media-file").setInputFiles({ name: "private.pdf", mimeType: "application/pdf", buffer: pdfBytes });
-   assert.equal(await page.locator("#media-file-name").textContent(), "private.pdf");
-   assert.equal(await page.locator("#media-file-type").textContent(), "PDF");
-   await page.waitForFunction(() => document.querySelector("#media-status")?.textContent?.startsWith("Verified locally"), undefined, { timeout: 20000 });
-  assert.equal(await page.locator("#media-original").isVisible(), true);
-  assert.equal(await page.locator("#media-sanitized").isVisible(), true);
-  assert.equal(await page.locator("#media-send").isEnabled(), true);
-  assert.ok(!(await page.locator("#media-report").innerText()).includes("HIDDEN_ACCESS_CODE_4959"));
-   await page.locator("#media-clear").click();
-   assert.equal(await page.locator("#media-send").isDisabled(), true);
-   assert.equal(await page.locator("#media-file-name").textContent(), "No file selected");
-   assert.equal(await page.locator("#media-file-type").isHidden(), true);
-   console.log("PASS browser media UI: local PDF preview, audit, cleared memory and disabled send");
-   await page.locator("#media-file").setInputFiles({ name: "private-photo.jpg", mimeType: "image/jpeg", buffer: scannedJpeg });
-   await page.waitForFunction(() => document.querySelector("#media-status")?.textContent?.startsWith("Verified locally"), undefined, { timeout: 20000 });
-   assert.equal(await page.locator("#media-file-type").textContent(), "IMAGE");
-   assert.equal(await page.locator("#media-page-row").isHidden(), true);
-   assert.equal(await page.locator("#media-send").isEnabled(), true);
-   console.log("PASS browser media UI: JPEG is auto-detected and routed through local image inspection");
+   await sendVerified(pdf.packet, ["media@example.test", "hidden@example.test", "9999 4105 7058", "9876543210", "ABCPE1234F", "Local Secret", "private.pdf", "private attachment payload", "private annotation payload", "private script", "qr-private-payload-8753"]);
+   console.log(`PASS browser PDF + QR: QR detected, page fully blacked out, metadata/hidden content discarded, QR payload absent from packet (${pdf.report.elapsed_ms}ms, ${Buffer.byteLength(JSON.stringify(pdf.packet))} outbound bytes)`);
+    await page.goto(url + "/ui");
+    await page.waitForFunction(() => Boolean(window.mediaPreview));
+    const pdfPreview = await page.evaluate(async (bytes) => {
+      const result = await window.mediaPreview.inspect(new File([Uint8Array.from(bytes)], "private.pdf", { type: "application/pdf" }));
+      return result?.packet.origin.page_kind;
+    }, [...pdfBytes]);
+   assert.equal(pdfPreview, "sanitized_pdf_page");
+   assert.equal(await page.locator('input[type="file"], #media-send').count(), 0, "the sidebar has no file-picker or media-send controls");
+   assert.equal(await page.locator("#media-original").isVisible(), true);
+   assert.equal(await page.locator("#media-sanitized").isVisible(), true);
+   assert.ok(!(await page.locator("#media-report").innerText()).includes("HIDDEN_ACCESS_CODE_4959"));
+    assert.equal(JSON.parse(await page.locator("#media-report").innerText()).transmission, "local_preview_not_sent");
+    await page.evaluate(() => window.mediaPreview.clear());
+    assert.equal(await page.locator("#media-sanitized").isHidden(), true);
+    assert.equal(await page.locator("#media-original").isHidden(), true);
+    assert.equal(await page.locator("#media-report").innerText(), "");
+    console.log("PASS browser media UI: sanitized PDF image and JSON only, cleared preview and released image URL");
+    const imagePreview = await page.evaluate(async (bytes) => {
+      const result = await window.mediaPreview.inspect(new File([Uint8Array.from(bytes)], "private-photo.jpg", { type: "image/jpeg" }));
+      return result?.packet.origin.page_kind;
+    }, [...scannedJpeg]);
+    assert.equal(imagePreview, "sanitized_image");
+    assert.equal(await page.locator("#media-sanitized").isVisible(), true);
+    console.log("PASS browser media UI: dialog-selected JPEG receives an automatic sanitized image/JSON preview");
+    const cancelledPreview = await page.evaluate(async (bytes) => {
+      const pending = window.mediaPreview.inspect(new File([Uint8Array.from(bytes)], "cancelled.pdf", { type: "application/pdf" }));
+      window.mediaPreview.clear();
+      return await pending;
+    }, [...pdfBytes]);
+    assert.equal(cancelledPreview, null);
+    assert.equal(await page.locator("#media-sanitized").isHidden(), true);
+    assert.equal(await page.locator("#media-report").innerText(), "", "a cancelled inspection must not repopulate the sidebar");
+    assert.deepEqual(detectorErrors, [], "normal GPU fallback and barcode misses must not produce extension errors");
 } finally {
   await browser.close();
   await new Promise((resolve) => planner.close(resolve));
