@@ -7,6 +7,8 @@ import type { Transport } from "@kavach/core/gate";
  */
 
 export const DEFAULT_SERVER_URL = "http://127.0.0.1:8787/plan";
+// Allow the server's default 30-second remote timeout and local fallback to finish.
+const PLAN_TIMEOUT_MS = 45_000;
 
 export interface PlannerHealth {
   ok: true;
@@ -41,13 +43,21 @@ export async function getPlannerHealth(url: string = DEFAULT_SERVER_URL): Promis
 export function makeTransport(url: string = DEFAULT_SERVER_URL): Transport {
   return {
     async post(serialized: string): Promise<unknown> {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: serialized,
-        redirect: "error",
-        signal: AbortSignal.timeout(20_000),
-      });
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: serialized,
+          redirect: "error",
+          signal: AbortSignal.timeout(PLAN_TIMEOUT_MS),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") {
+          throw new Error("Planner request timed out after 45 seconds. Check the planner terminal logs and remote model connection.");
+        }
+        throw new Error("Cannot reach the planner. Run npm run dev in the project directory and keep it running, then retry. If it is already running, check the planner terminal logs and browser network errors.");
+      }
       if (!res.ok) {
         throw new Error(`planner returned ${res.status}`);
       }
