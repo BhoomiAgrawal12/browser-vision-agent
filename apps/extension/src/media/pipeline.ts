@@ -1,6 +1,5 @@
 import { createWorker, OEM } from "tesseract.js";
 import { getDocument, GlobalWorkerOptions, Util } from "pdfjs-dist";
-import { BarcodeFormat, BinaryBitmap, DecodeHintType, HybridBinarizer, MultiFormatReader, RGBLuminanceSource } from "@zxing/library";
 import { defaultRegistry } from "@kavach/core/detectors";
 import { PolicyEngine, type RawRegion } from "@kavach/core/policy";
 import { PII_SEVERITY, SCP_SCHEMA_ID, type Box, type SanitizedContextPacket } from "@kavach/core/schema";
@@ -12,15 +11,18 @@ import { defaultModelHost, ULTRAFACE_MANIFEST } from "@kavach/perception/models"
 import { detectFaces, type FaceModel } from "@kavach/perception/vision";
 import { createOrtFaceModel, type OrtNamespace } from "@kavach/perception/vision/ort";
 import { assetUrl, verifiedMediaAssets } from "./assets.js";
+import { detectBarcodeRegions } from "./barcodes.js";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_PIXELS = 6_000_000;
+const MAX_PACKET_RASTER_BYTES = 1_000_000;
+const MAX_PACKET_RASTER_EDGE = 1600;
 export interface MediaPage {
   page: number;
   original: Blob;
   sanitized: Blob;
   packet: SanitizedContextPacket;
-  report: { metadata_removed: string[]; pdf_features_discarded: string[]; text_regions: number; barcode_regions: number; face_regions: number; identity_document_detected: boolean; redactions_by_class: Record<string, number>; redaction_regions: { box: RawRegion["box"]; label: string }[]; ocr_detected_classes: string[]; ocr_text_sent: false; ocr_ms: number; face_ms: number; face_backend: "webgpu" | "wasm" | "none"; treatment: string; elapsed_ms: number };
+  report: { pipeline_version: string; metadata_removed: string[]; pdf_features_discarded: string[]; text_regions: number; barcode_regions: number; face_regions: number; identity_document_detected: boolean; identity_document_hint: boolean; redactions_by_class: Record<string, number>; redaction_regions: { box: RawRegion["box"]; label: string }[]; ocr_detected_classes: string[]; ocr_text_sent: false; ocr_ms: number; face_ms: number; face_backend: "webgpu" | "wasm" | "none"; output_size_bytes: number; resized: boolean; treatment: string; elapsed_ms: number };
 }
 
 let faceModelPromise: Promise<FaceModel> | null = null;
@@ -36,7 +38,8 @@ function localFaceModel(): Promise<FaceModel> {
       });
       return createOrtFaceModel(ort, bytes, {
         wasmPaths: assetUrl("ort/"),
-        executionProviders: ["webgpu", "wasm"],
+        // Avoid probing unavailable GPU adapters for this lightweight local model.
+        executionProviders: ["wasm"],
       });
     })();
   }
@@ -64,11 +67,74 @@ function verifyEncodedRedactions(image: ImageDataLike, boxes: Box[]): void {
   }
 }
 
+/** @internal Exported for the browser integration check of the packet-size path. */
+export async function encodeVerifiedRaster(
+  source: ImageDataLike,
+  redactions: RedactionRect[],
+): Promise<{ blob: Blob; bytes: Uint8Array; image: ImageDataLike; boxes: Box[]; labels: string[]; resized: boolean }> {
+  const initial = composeSanitized(source, redactions);
+  if (!verifyRedactedRegions(initial.image, initial.appliedRects, { stamp: null }).ok) {
+    throw new Error("Media pixel verification failed");
+  }
+  const base = new OffscreenCanvas(source.width, source.height);
+  base.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(initial.image.data), source.width, source.height), 0, 0);
+
+  let scale = Math.min(1, MAX_PACKET_RASTER_EDGE / Math.max(source.width, source.height));
+  for (let attempt = 0; attempt < 9; attempt++) {
+    const width = Math.max(1, Math.floor(source.width * scale));
+    const height = Math.max(1, Math.floor(source.height * scale));
+    const scaleX = width / source.width;
+    const scaleY = height / source.height;
+    let composed = initial;
+    if (width !== source.width || height !== source.height) {
+      const resized = new OffscreenCanvas(width, height);
+      const resizedContext = resized.getContext("2d", { willReadFrequently: true })!;
+      resizedContext.imageSmoothingEnabled = true;
+      resizedContext.drawImage(base, 0, 0, width, height);
+      const pixels = resizedContext.getImageData(0, 0, width, height);
+      const scaledMasks = initial.appliedRects.map((box, index) => ({
+        box: [box[0] * scaleX, box[1] * scaleY, box[2] * scaleX, box[3] * scaleY] as Box,
+        ...(redactions[index]?.label ? { label: redactions[index]!.label } : {}),
+      }));
+      composed = composeSanitized({ width, height, data: pixels.data }, scaledMasks);
+      if (!verifyRedactedRegions(composed.image, composed.appliedRects, { stamp: null }).ok) {
+        throw new Error("Resized media pixel verification failed");
+      }
+    }
+
+    const output = new OffscreenCanvas(width, height);
+    output.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(composed.image.data), width, height), 0, 0);
+    const blob = await output.convertToBlob({ type: "image/png" });
+    if (blob.size > MAX_PACKET_RASTER_BYTES) {
+      scale *= 0.75;
+      continue;
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    verifyRasterArtifact(bytes);
+    const roundTrip = await createImageBitmap(blob);
+    try {
+      const check = new OffscreenCanvas(width, height);
+      const ctx = check.getContext("2d", { willReadFrequently: true })!;
+      ctx.drawImage(roundTrip, 0, 0);
+      verifyEncodedRedactions({ width, height, data: ctx.getImageData(0, 0, width, height).data }, composed.appliedRects);
+    } finally { roundTrip.close(); }
+    return {
+      blob,
+      bytes,
+      image: composed.image,
+      boxes: composed.appliedRects,
+      labels: redactions.map((redaction) => redaction.label ?? "UNEXPLAINED"),
+      resized: width !== source.width || height !== source.height,
+    };
+  }
+  throw new Error("Could not fit the sanitized image within the planner packet size limit");
+}
+
 /** No original container, OCR strings, file names or metadata values cross this boundary.
  * Supported images preserve pixels outside locally detected PII, faces and barcodes;
  * PDFs and ambiguous identity/signature pages retain the conservative full-page mask.
  */
-export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<MediaPage> {
+export async function inspectLocalMedia(file: File, pageNumber = 1, options: { identityDocumentHint?: boolean } = {}): Promise<MediaPage> {
   if (!file.size || file.size > MAX_BYTES) throw new Error("Choose a nonempty file no larger than 20 MiB");
   const started = performance.now();
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -158,12 +224,12 @@ export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<Med
       }
     } finally { await worker.terminate(); }
     const ocrMs = Math.round(performance.now() - ocrStarted);
-    identityDocumentDetected = regions.some((region) => /aadhaar|aadhar|passport|voter\s*id|driving\s+licen[cs]e|identity\s+card|government\s+id/i.test(region.rawText ?? ""));
+    identityDocumentDetected = options.identityDocumentHint === true || regions.some((region) => /aadhaar|aadhar|passport|voter\s*id|driving\s+licen[cs]e|identity\s+card|government\s+id/i.test(region.rawText ?? ""));
     if (identityDocumentDetected && regions.length < 400) {
       regions.push({
-        id: `e${regions.length + 1}`, role: "image", label: "Identity document (local OCR cues)",
+        id: `e${regions.length + 1}`, role: "image", label: options.identityDocumentHint ? "Identity document (local upload-field hint)" : "Identity document (local OCR cues)",
         box: [0, 0, canvas!.width, canvas!.height], source: "vision", confidence: 0.75,
-        evidence: ["visual:id-document-ocr"], explained: true, visualClass: "ID_DOCUMENT",
+        evidence: [options.identityDocumentHint ? "structural:identity-document-upload" : "visual:id-document-ocr"], explained: true, visualClass: "ID_DOCUMENT",
       });
     }
     const ctx = canvas!.getContext("2d", { willReadFrequently: true })!;
@@ -188,27 +254,16 @@ export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<Med
       }
     }
     let barcodes = 0;
-    try {
-      const gray = new Uint8ClampedArray(image.width * image.height);
-      for (let i = 0; i < gray.length; i++) gray[i] = (image.data[i * 4]! + image.data[i * 4 + 1]! * 2 + image.data[i * 4 + 2]!) / 4;
-      const reader = new MultiFormatReader();
-      reader.setHints(new Map([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX, BarcodeFormat.PDF_417, BarcodeFormat.AZTEC, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E]] ]));
-      const result = reader.decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(gray, image.width, image.height))));
-      if (result) {
-        barcodes = 1; // Decoded barcode contents are intentionally discarded.
-        const points = result.getResultPoints();
-        const xs = points.map((p) => p.getX());
-        const ys = points.map((p) => p.getY());
-        const left = xs.length ? Math.max(0, Math.min(...xs) - 4) : 0;
-        const top = ys.length ? Math.max(0, Math.min(...ys) - 4) : 0;
-        const right = xs.length ? Math.min(image.width, Math.max(...xs) + 4) : image.width;
-        const bottom = ys.length ? Math.min(image.height, Math.max(...ys) + 4) : image.height;
+    {
+      const barcodeBoxes = detectBarcodeRegions({ width: image.width, height: image.height, data: image.data });
+      for (const box of barcodeBoxes) {
+        barcodes++;
         regions.push({ id: `e${regions.length + 1}`, role: "image", label: null,
-          box: [left, top, Math.max(1, right - left), Math.max(1, bottom - top)], source: "vision",
-          confidence: 0.9, evidence: ["visual:qr-barcode"], explained: true, visualClass: "QR_BARCODE" });
+          box, source: "vision",
+          confidence: 0.9, evidence: ["visual:qr-barcode-geometry"], explained: true, visualClass: "QR_BARCODE" });
         detectedRedactions.push({ box: regions.at(-1)!.box, label: "PII:QR_BARCODE" });
       }
-    } catch { /* No supported code detected; no barcode region is released to the packet. */ }
+    }
     const signatureCue = regions.some((region) => /\bsignature\b|\bsigned by\b/i.test(region.rawText ?? ""));
     if (signatureCue && regions.length < 400) {
       regions.push({
@@ -224,28 +279,16 @@ export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<Med
       });
     }
     const hasRecognizedContent = regions.some((region) => region.role === "text") || faceRegions > 0 || barcodes > 0;
-    const forceFullMask = isPdf || signatureCue || (identityDocumentDetected && detectedRedactions.length === 0) || !hasRecognizedContent;
+    const unresolvedIdentityQr = options.identityDocumentHint === true && barcodes === 0;
+    const forceFullMask = isPdf || signatureCue || unresolvedIdentityQr || (identityDocumentDetected && detectedRedactions.length === 0) || !hasRecognizedContent;
     const fullPageMask: RedactionRect = {
       box: [0, 0, image.width, image.height],
       label: isPdf ? "PDF_PAGE" : identityDocumentDetected ? "PII:ID_DOCUMENT" : signatureCue ? "PII:SIGNATURE" : "UNEXPLAINED",
     };
     const redactions = forceFullMask ? [fullPageMask] : detectedRedactions;
-    const composed = composeSanitized(image, redactions);
-    if (!verifyRedactedRegions(composed.image, composed.appliedRects, { stamp: null }).ok) throw new Error("Media pixel verification failed");
-    const output = new OffscreenCanvas(image.width, image.height);
-    output.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(composed.image.data), image.width, image.height), 0, 0);
-    const sanitized = await output.convertToBlob({ type: "image/png" });
-    const safeBytes = new Uint8Array(await sanitized.arrayBuffer());
-    verifyRasterArtifact(safeBytes);
-    const roundTrip = await createImageBitmap(sanitized);
-    try {
-      output.getContext("2d")!.drawImage(roundTrip, 0, 0);
-      const decoded = output.getContext("2d")!.getImageData(0, 0, image.width, image.height);
-      verifyEncodedRedactions(
-        { width: decoded.width, height: decoded.height, data: decoded.data },
-        composed.appliedRects,
-      );
-    } finally { roundTrip.close(); }
+    const raster = await encodeVerifiedRaster(image, redactions);
+    const sanitized = raster.blob;
+    const safeBytes = raster.bytes;
     const vault = new Vault();
     try {
       const policy = new PolicyEngine(recognizers, vault, "2026.09.2");
@@ -266,9 +309,9 @@ export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<Med
         }
       }
       if (identityDocumentDetected) redactionsByClass.ID_DOCUMENT = (redactionsByClass.ID_DOCUMENT ?? 0) + 1;
-      const redactionRegions = composed.appliedRects.map((box, index) => ({
+      const redactionRegions = raster.boxes.map((box, index) => ({
         box,
-        label: redactions[index]?.label ?? "UNEXPLAINED",
+        label: raster.labels[index] ?? "UNEXPLAINED",
       }));
       let binary = "";
       for (let i = 0; i < safeBytes.length; i += 32768) binary += String.fromCharCode(...safeBytes.subarray(i, i + 32768));
@@ -276,26 +319,39 @@ export async function inspectLocalMedia(file: File, pageNumber = 1): Promise<Med
       const packet: SanitizedContextPacket = {
         schema: SCP_SCHEMA_ID, packet_id: crypto.randomUUID(), captured_at_ms: Date.now(),
         policy: { mode: "shield", policy_version: "2026.09.2", invariant_floor: true },
-        device: { backend: faceBackend === "none" ? "wasm" : faceBackend, tier: "T1", viewport: { w: image.width, h: image.height, dpr: 1 } },
+        device: { backend: faceBackend === "none" ? "wasm" : faceBackend, tier: "T1", viewport: { w: raster.image.width, h: raster.image.height, dpr: 1 } },
         origin: { class: "other", tls: false, page_kind: isPdf ? "sanitized_pdf_page" : "sanitized_image", lang: "en" },
-        visual: { present: true, format: "image/png", w: image.width, h: image.height, sha256: await sha256Hex(base64), data_b64: base64, redaction_overlay: "flat_fill", regions_redacted: redactionRegions.length },
-        elements: protectedPage.elements,
+        visual: { present: true, format: "image/png", w: raster.image.width, h: raster.image.height, sha256: await sha256Hex(base64), data_b64: base64, redaction_overlay: "flat_fill", regions_redacted: redactionRegions.length },
+        elements: protectedPage.elements.map((element) => ({
+          ...element,
+          box: [
+            element.box[0] * raster.image.width / image.width,
+            element.box[1] * raster.image.height / image.height,
+            element.box[2] * raster.image.width / image.width,
+            element.box[3] * raster.image.height / image.height,
+          ] as Box,
+        })),
         redaction_legend: Object.fromEntries(Object.entries(protectedPage.legend).map(([key, entry]) => [key, { ...entry, recoverable_by_client: false }])),
         task: { intent: protectedPage.intent, history: [] }, untrusted_text: typedOcrTokens,
       };
       return { page: pageNumber, original, sanitized, packet, report: {
+        pipeline_version: "2026.09.30-qr-geometry",
         metadata_removed: [...new Set(metadata)], pdf_features_discarded: discarded,
         text_regions: regions.filter((region) => region.role === "text").length, barcode_regions: barcodes, face_regions: faceRegions,
         redaction_regions: redactionRegions,
         ocr_detected_classes: [...ocrDetectedClasses],
         redactions_by_class: redactionsByClass,
         identity_document_detected: identityDocumentDetected,
+        identity_document_hint: options.identityDocumentHint === true,
         ocr_text_sent: false,
         ocr_ms: ocrMs,
         face_ms: faceMs,
         face_backend: faceBackend,
+        output_size_bytes: safeBytes.length,
+        resized: raster.resized,
         treatment: isPdf
           ? "PDF page fully masked after local OCR; original PDF objects, hidden text and metadata were discarded."
+          : unresolvedIdentityQr ? "Full identity-upload image masked because its QR/code region could not be located safely."
           : forceFullMask
             ? identityDocumentDetected || signatureCue
               ? "Full image masked because an identity-document or signature cue could not be localized safely."
