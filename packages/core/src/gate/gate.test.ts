@@ -87,6 +87,31 @@ describe("EgressGate: happy path", () => {
       "response:pass",
     ]);
   });
+
+  it("allows a Shield-approved filled name but still blocks it if repeated in task text", async () => {
+    const p = fixturePacket();
+    p.policy.mode = "shield";
+    p.elements.push({
+      id: "e99",
+      role: "textbox",
+      label: "Name",
+      box: [0, 0, 160, 32],
+      state: { filled: true, required: true },
+      value: { kind: "filled", text: "Demo Person" },
+      evidence: ["structural:role=textbox"],
+      confidence: 1,
+      source: "dom",
+    });
+    vault.remember("field|name", "Demo Person");
+
+    await expect(gate.send(p)).resolves.toMatchObject({ packet_id: p.packet_id });
+    expect(receipts[0]!.outcome).toBe("sent");
+
+    p.task.intent = "Mention Demo Person in the task note";
+    await expect(gate.send(p)).rejects.toThrow(EgressBlocked);
+    expect(receipts[1]!.outcome).toBe("blocked");
+    expect(receipts[1]!.verification.vault_scan_passed).toBe(false);
+  });
 });
 
 describe("EgressGate: the tripwire", () => {

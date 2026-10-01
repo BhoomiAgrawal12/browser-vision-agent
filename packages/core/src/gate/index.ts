@@ -214,8 +214,20 @@ export class EgressGate {
       captured_at_ms: undefined,
       visual: { ...packet.visual, sha256: undefined, data_b64: undefined },
     });
-    const vaultScannable = packet.visual.data_b64 === undefined ? serialized : JSON.stringify({
-      ...packet, visual: { ...packet.visual, data_b64: undefined },
+    const shieldApprovedFields = new Set(packet.policy.mode === "shield"
+      ? packet.elements.filter((element) => element.value?.kind === "filled").map((element) => element.id)
+      : []);
+    const vaultElements = packet.elements.map((element) => {
+      if (!shieldApprovedFields.has(element.id) || element.value?.kind !== "filled") return element;
+      // Shield intentionally permits medium-risk filled fields such as names.
+      // The policy-approved field value may leave, but the same remembered
+      // value remains blocked if it appears in task text, history or elsewhere.
+      return { ...element, value: { ...element.value, text: undefined } };
+    });
+    const vaultScannable = JSON.stringify({
+      ...packet,
+      elements: vaultElements,
+      visual: { ...packet.visual, data_b64: undefined },
     });
 
     // 2. Tripwire: re-run the full detector suite over everything that is
