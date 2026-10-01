@@ -15,7 +15,7 @@ The server receives a formal, versioned Sanitized Context Packet, is told the re
 scheme in the packet itself, and answers with actions that name element IDs, never
 coordinates. One function in the whole codebase is allowed to touch the network.
 
-Full design: [docs/REPORT.md](docs/REPORT.md) (or the [PDF](docs/REPORT.pdf)).
+Implementation and measured limits: [docs/IMPLEMENTATION-EVIDENCE.md](docs/IMPLEMENTATION-EVIDENCE.md).
 
 ## Layout
 
@@ -35,7 +35,7 @@ tools/               build utilities
 Tier 0 is the structure-only fallback: the DOM and accessibility data drive
 the form loop, and PII is caught by validators and checksums. Shield and
 Fortress also run the bundled UltraFace face detector locally through
-ONNX Runtime Web, preferring WebGPU and falling back to WASM; Wireframe sends
+ONNX Runtime Web's CPU/WASM backend, without requiring a GPU adapter; Wireframe sends
 zero pixels. If capture or model assets are unavailable, the structure-only
 path remains available and unexplained media stays masked.
 
@@ -55,7 +55,8 @@ Then load the extension:
 - **Firefox**: about:debugging, "This Firefox", "Load Temporary Add-on",
   pick `apps/extension/dist/firefox/manifest.json`. Open the Dravika sidebar.
 
-Open the demo form, type "Help me complete this form" in the panel, press Run.
+Open the demo form, press **Start / resume task**, type "Help me complete this form"
+in the task dialog, and press **Run**.
 Watch the "What the server sees" pane: Aadhaar, email, and phone become typed
 placeholders, while detected faces are represented as redacted visual regions;
 the 12 digit application reference survives untouched because it fails the
@@ -79,20 +80,48 @@ Node 20+ required.
 
 ## Local image/PDF inspection
 
-The side panel accepts a local JPEG, PNG, WebP or PDF file (up to 20 MiB, PDF
-pages 1–50). Press **Inspect locally** to see the original beside a freshly
-encoded preview with locally detected PII, faces and barcodes flat-filled.
+File-upload questions ask for a local JPEG, PNG, WebP or PDF in a dialog
+(up to 20 MiB; PDF preview pages 1–50 are selected in that same dialog).
+Local inspection runs automatically. The sidebar shows the original image/page
+for local comparison beside the freshly encoded blacked-out preview and sanitized
+JSON; it has no separate file picker. The original comparison is never uploaded.
 PDF pages and images with unlocalized identity/signature content remain fully
 masked. Shield mode can preserve medium-risk names while Aadhaar, phone, email
 and other high-risk regions are flat-filled. A value-free audit lists metadata
 fields, detected classes and PDF features discarded. English OCR and vision
 assets are SHA-pinned; integrity or pixel-check failures block sending.
-**Send sanitized page** sends only the new PNG and typed descriptors through
-the gate. Local detectors can miss content, so review the preview before
-sending. The original file, extracted OCR text and metadata values never go to
-the planner.
+The media JSON is labelled as a local preview, not a sent planner request.
+After the preview is ready, a **Review before upload** dialog asks for approval
+once. Only the approved blacked-out file is attached to the website; rejecting
+it leaves the upload field empty. Images use an accepted sanitized image format;
+PDFs become a new raster-only PDF containing just the reviewed page. The sidebar
+JSON records the sanitized upload's hash and approval/attachment state. Original
+file bytes, extracted OCR text and metadata values are not sent to the planner.
+Activity and privacy checks are available in collapsed details.
+
+QR masking locates finder-pattern geometry without requiring a successful payload
+decode, including dense/damaged and multiple-code cases. Inverted code patterns
+are also checked; credible but unresolved finder patterns trigger full-frame
+masking. Aadhaar/identity-document upload fields use full-image masking when no
+QR/code region can be localized. The audit identifies this pipeline with
+`pipeline_version: "2026.09.30-qr-geometry"`.
+
+After upload approval, the agent refreshes the target locally and retries stale
+snapshots without another planner call or approval. Direct file inputs and
+accessible same-origin dialog/iframe pickers are supported. If a picker is
+inaccessible or the website does not confirm the upload, the sidebar reports
+failure, with `website_upload.failure_reason` in the preview JSON. Closed/reused
+pickers are recognized by actual visibility rather than DOM existence. The
+helper waits for upload progress and an enabled Insert/Select control before
+completing the picker, then verifies the form acknowledgement without uploading
+the file again. Stop
+cancels a pending picker operation before file dispatch.
+**Activity → Export activity** downloads payload-free upload diagnostics
+(snapshot/target IDs, retry reasons and dispatch/confirmation stages). Upload
+events are browser-side; they do not appear in the local planner's server log.
 
 Run `npm run test:browser` for the isolated Chromium form and media pipeline
-checks. See [implementation evidence](docs/IMPLEMENTATION-EVIDENCE.md) for
+checks, including PDF upload approval, iframe picker ingestion, and QR detection/
+blacking in image and PDF fixtures. See [implementation evidence](docs/IMPLEMENTATION-EVIDENCE.md) for
 measured results and limitations. For predictable form steps, use
 `PLANNER_MODE=heuristic npm run dev` after stopping any previous planner.

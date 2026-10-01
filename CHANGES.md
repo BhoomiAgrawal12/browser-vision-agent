@@ -2,6 +2,41 @@
 
 This file records concise summaries of project work. Add new entries at the top of the log.
 
+## 2026-09-30
+
+### Sequential Questions, File Prompts And Local Detection
+
+- Fixed delayed picker completion: wait for upload progress and enabled Insert/Select controls (including selection counts), inspect accessible nested picker frames, complete the owned picker once, and allow up to 30 seconds for form acknowledgement without re-dispatching file bytes.
+- Verified delayed iframe Insert completion for image/PDF uploads and retained Stop cancellation. The browser regression completed successfully in isolated Chrome after a Brave D-Bus process crash interrupted an earlier run.
+- Replaced decode-dependent QR masking with finder-geometry localization, harder/inverted scans and repeated-code searches. Dense/damaged codes are masked even if their payload cannot be decoded; unresolved finder evidence fails closed.
+- Added QR localization to page captures and an identity-upload field hint: if an Aadhaar/identity upload has no located code, withhold the entire image. The media audit now exposes its pipeline version and identity hint.
+- Restored a local original-versus-sanitized comparison, added explicit `website_upload.failure_reason`, respected original image MIME when picker formats are unknown, and bound approval to the sanitized-preview hash.
+- Fixed reused-picker visibility checks and duplicate nested uploaded-file rows. Tests verify reopening the picker for the next upload, failure reasons, comparison clearing and identity fallback.
+- Added PDF-with-QR browser fixtures: detect QR in vector/scanned PDF pages, verify blacked-out output and typed QR descriptors, upload the exact approved sanitized PDF through a cloud-style iframe picker, and re-open the uploaded PDF to verify no original text or decodable QR remains.
+- Fixed post-approval stale upload handling: refresh the reviewed field locally, retry stale snapshots without planner calls, and distinguish dispatched bytes from website acceptance so a removed input does not replay the upload.
+- Added owned same-origin dialog/iframe picker handling and uploaded-file-chip perception. Inaccessible pickers fail explicitly instead of entering a stale loop.
+- Propagated Stop/navigation cancellation to pending page-side uploads; a delayed picker input cannot receive a file after the task has been cancelled. The iframe browser fixture verifies this boundary.
+- Added payload-free `dravika.upload` browser events and Activity export for refresh/retry/dispatch/confirmation failures. New browser coverage injects stale snapshots and checks one approved-file dispatch through a delayed iframe picker.
+- Added one post-preview approval before file attachment. The website receives the approved sanitized artifact, never the original; the sidebar records its hash and approval/attachment state. New raster-only PDF uploads contain only the reviewed sanitized page.
+- Browser fixtures verify no attachment before approval, rejection leaving the field empty, approval reuse after target re-rendering, and exact approved image/PDF bytes ingested by the form.
+- Moved task entry and file/PDF-page selection into dialogs. The sidebar is preview-focused, with automatic sanitized image/JSON output and collapsed diagnostics; removed standalone media upload/send controls and the original-image preview.
+- Restored per-question image/PDF/file selection, with inline type/size validation and explicit attachment to the website.
+- Kept text, choice and upload questions in page order, one action per plan; upload buttons cannot become the primary submission action.
+- Preserved answer memory on same-task retries, remembered public choice labels separately, and kept corrections ahead of original task values.
+- Prevented repeated question prompts after re-rendering or rejected answers, and removed shared generic prompt keys that could mix different answers.
+- Used CPU/WASM face inference to avoid unavailable GPU-adapter errors. Handled expected barcode decode misses quietly while retaining real failure reporting.
+- Expanded QR masks beyond finder centres to cover the entire code; an Aadhaar-plus-QR browser fixture verifies both are blacked out and their values stay off the planner wire.
+- Restored the offline planner, increased the client request timeout to 45 seconds, and added connection-recovery messages.
+
+### Verification
+
+- All 251 workspace tests, typechecks and the egress check pass.
+- Built-panel Google/Microsoft-style form fixtures verify sequential questions, once-only prompts, image/PDF attachment, re-render/retry reuse and submission consent.
+- Browser media checks verify full QR masking, WASM inference without adapter errors, quiet barcode misses, metadata removal and packet-size handling.
+- Chrome and Firefox extension bundles rebuilt.
+- Latest upload recovery checks: 35 extension tests, extension typecheck, egress check and native/cloud-style picker browser fixtures pass.
+- Latest QR/comparison checks: 37 extension tests, typecheck, egress checks, form/iframe picker fixtures and difficult-QR/identity/PDF media fixtures pass; both extension builds regenerated.
+
 ## 2026-09-26
 
 ### Manual Form Progress And Validation
