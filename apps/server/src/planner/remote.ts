@@ -104,6 +104,9 @@ function buildSystemPrompt(packet: SanitizedContextPacket): string {
     "once per target in one",
     "plan. If state.invalid is true, ask the user to correct that same field",
     "before moving on, and put navigation or submit clicks after data-entry steps.",
+    "An element whose evidence contains structural:input_type=file is a file upload field.",
+    "If it is required and empty, target it with a click step; the client will let",
+    "the user attach a local file. Never request or invent its filename or contents.",
     ...(packet.origin.page_kind.startsWith("form")
       ? [
           "This is a form. Return exactly one next action. Never submit or navigate while any required field is empty or invalid.",

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { fixturePacket } from "@kavach/core/schema/fixtures";
-import { ActionPlan } from "@kavach/core/schema";
+import { ActionPlan, guardPlanAgainstPacket } from "@kavach/core/schema";
 import { makeServer } from "./server.js";
 import { heuristicPlan } from "./planner/heuristic.js";
 
@@ -131,7 +131,7 @@ describe("heuristic planner directly", () => {
     expect(plan.needs_more_context).toBe(true);
   });
 
-  it("caps fill steps at five", () => {
+  it("plans only the first pending field", () => {
     const p = fixturePacket();
     p.elements = Array.from({ length: 8 }, (_, i) => ({
       id: `e${i + 1}`,
@@ -147,5 +147,25 @@ describe("heuristic planner directly", () => {
     const plan = heuristicPlan(p);
     expect(plan.steps).toHaveLength(1);
     expect(plan.steps[0]).toMatchObject({ action: "type", target_element_id: "e1" });
+  });
+
+  it("keeps text, file, choice, and invalid questions in page order", () => {
+    const packet = fixturePacket();
+    const base = packet.elements[1]!;
+    packet.elements = [
+      { ...base, id: "e1", label: "Name", evidence: [], value: { kind: "empty" }, state: { required: true } },
+      { ...base, id: "e2", role: "button", label: "Upload document", risk: "state_changing", evidence: ["structural:input_type=file"], value: { kind: "empty" }, state: { required: true } },
+      { ...base, id: "e3", role: "combobox", label: "Country", evidence: [], value: { kind: "empty" }, state: { required: true, invalid: true } },
+      { ...packet.elements[2]!, state: { disabled: false } },
+    ];
+    for (const [index, action] of ["type", "click", "select"].entries()) {
+      const plan = heuristicPlan(packet);
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0]).toMatchObject({ action, target_element_id: `e${index + 1}` });
+      expect(guardPlanAgainstPacket(plan, packet)).toEqual([]);
+      packet.elements[index]!.state = { required: true, filled: true };
+      packet.elements[index]!.value = { kind: "filled", text: "already answered" };
+    }
+    expect(heuristicPlan(packet).steps[0]?.target_element_id).toBe("e31");
   });
 });

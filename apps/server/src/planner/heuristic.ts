@@ -22,7 +22,12 @@ import {
 const SUBMIT_LABEL = /submit|proceed|continue|next|save|verify|confirm|pay|apply|login|sign in|search|start now/i;
 
 function isFillableRole(el: SceneElement): boolean {
-  return ["textbox", "password", "combobox", "listbox"].includes(el.role);
+  return ["textbox", "password", "combobox", "listbox"].includes(el.role) ||
+    el.evidence.includes("structural:input_type=file");
+}
+
+function isFileUpload(el: SceneElement): boolean {
+  return el.evidence.includes("structural:input_type=file");
 }
 
 function isEmptyRequired(el: SceneElement): boolean {
@@ -42,64 +47,33 @@ function isInvalidField(el: SceneElement): boolean {
 function isActionButton(el: SceneElement): boolean {
   return (
     el.role === "button" &&
+    !isFileUpload(el) &&
     el.state?.disabled !== true &&
     el.label !== null &&
     SUBMIT_LABEL.test(el.label)
   );
 }
 
-// Fill one answer at a time; the client re-perceives the page before planning
-// the next input so dynamic forms can update their labels and validation.
-const MAX_FILL_STEPS = 1;
-
 export function heuristicPlan(packet: SanitizedContextPacket): ActionPlan {
   const steps: PlanStep[] = [];
-  const invalids = packet.elements.filter(isInvalidField).slice(0, MAX_FILL_STEPS);
-  if (invalids.length > 0) {
-    for (const el of invalids) {
-      steps.push({
-        action: el.role === "combobox" || el.role === "listbox" ? "select" : "type",
-        target_element_id: el.id,
-        value: {
-          kind: "user_prompt",
-          prompt_text: `Please correct: ${el.label ?? "the highlighted field"}`,
-        },
-        requires_confirmation: false,
-      });
-    }
+  // Pick the first pending question in page order, including uploads and
+  // locally supplied optional answers. Never batch later fields or submission.
+  const el = packet.elements.find((element) => isInvalidField(element) || isEmptyRequired(element));
+  if (el) {
+    const invalid = isInvalidField(el);
+    steps.push({
+      action: isFileUpload(el) ? "click" : el.role === "combobox" || el.role === "listbox" ? "select" : "type",
+      target_element_id: el.id,
+      ...(isFileUpload(el) ? {} : { value: { kind: "user_prompt" as const, prompt_text: `Please ${invalid ? "correct" : "provide"}: ${el.label ?? "the highlighted field"}` } }),
+      requires_confirmation: el.risk !== undefined,
+    });
     return {
       schema: PLAN_SCHEMA_ID,
       packet_id: packet.packet_id,
-      reasoning_summary: `${invalids.length} field(s) contain values rejected by the form and need correction.`,
+      reasoning_summary: `The next question (${el.label ?? el.id}) ${invalid ? "needs correction" : "needs an answer"}. Later questions will be checked after this one.`,
       steps,
       needs_more_context: false,
-      confidence: 0.8,
-    };
-  }
-  const empties = packet.elements.filter(isEmptyRequired).slice(0, MAX_FILL_STEPS);
-
-  if (empties.length > 0) {
-    for (const el of empties) {
-      steps.push({
-        action: el.role === "combobox" || el.role === "listbox" ? "select" : "type",
-        target_element_id: el.id,
-        value: {
-          kind: "user_prompt",
-          prompt_text: `Please provide: ${el.label ?? "the highlighted field"}`,
-        },
-        requires_confirmation: false,
-      });
-    }
-    return {
-      schema: PLAN_SCHEMA_ID,
-      packet_id: packet.packet_id,
-      reasoning_summary:
-        `${empties.length} required field(s) are empty` +
-        ` (${empties.map((e) => e.label ?? e.id).join(", ")}).` +
-        " They need values only the user can supply.",
-      steps,
-      needs_more_context: false,
-      confidence: 0.75,
+      confidence: invalid ? 0.8 : 0.75,
     };
   }
 
