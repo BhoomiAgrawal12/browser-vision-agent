@@ -50,14 +50,31 @@ export interface ExecuteRequest {
   grounding?: Grounding;
 }
 
+/** A user-approved local file transfer to a page file input. */
+export interface AttachFileRequest {
+  type: "attach-file";
+  uploadId?: string;
+  snapshotId: number;
+  targetId: string;
+  grounding: Grounding;
+  file: { name: string; mimeType: string; data_b64: string; maxBytes?: number; sha256?: string };
+}
+
 export interface ExecuteResponse {
   ok: boolean;
   error?: "stale_snapshot" | "not_found" | "regrounding_failed" | "unsupported" | "failed" | "validation_failed";
   detail?: string;
+  /** File bytes were handed to the page; never replay this upload on a re-render. */
+  fileDispatched?: boolean;
+  fileSha256?: string;
+  pickerCompletion?: "closed" | "completed" | "pending" | "unavailable" | "cancelled";
+  uploadReason?: "file_type_not_accepted" | "file_size_limit" | "different_existing_file";
 }
 
 export type ContentRequest =
   | { type: "perceive" }
+  | AttachFileRequest
+  | { type: "cancel-upload"; uploadId: string }
   | ExecuteRequest
   | { type: "highlight"; ids: string[] };
 

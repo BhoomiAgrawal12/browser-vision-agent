@@ -1,7 +1,7 @@
 import type { RawRegion } from "@kavach/core/policy";
 import type { ElementRole, OriginClass, PiiClass } from "@kavach/core/schema";
 import type { PageMeta } from "../shared/messages.js";
-import { choiceLabel, choiceNodes, controlValue, editableTarget, formFeedback, isDisplayed, linkedText, questionOf, questionTitle } from "./form-controls.js";
+import { QUESTION_SELECTOR, choiceLabel, choiceNodes, controlValue, editableTarget, fileInputFor, fileUploadHelp, fileUploadValue, formFeedback, isDisplayed, isFileUploadAction, isFileUploadPrompt, linkedText, questionOf, questionTitle } from "./form-controls.js";
 
 /**
  * Tier 0 perception: walk the DOM (including open shadow roots), keep the
@@ -354,11 +354,23 @@ export function perceive(doc: Document): Snapshot {
     elements.set(id, el);
   };
 
+  const seenFileInputs = new Set<HTMLInputElement>();
   for (const el of walkNodes(doc)) {
     if (regions.length >= MAX_REGIONS) break;
     const role = roleOf(el);
     const tag = el.tagName.toLowerCase();
-    const interactive = INTERACTIVE.has(role);
+    const nativeFileInput = el instanceof HTMLInputElement && el.type === "file";
+    if (nativeFileInput && !isVisible(el)) continue;
+    const uploadAction = role === "button" || role === "link";
+    const parentQuestion = el.parentElement?.closest(QUESTION_SELECTOR);
+    const completedUpload = el.matches(QUESTION_SELECTOR) && !(parentQuestion && questionTitle(parentQuestion) && !questionTitle(el)) && fileUploadValue(el) !== "" &&
+      ![...el.querySelectorAll('button, [role="button"], a, input[type="file"]')].some((control) =>
+        isVisible(control) && (isFileUploadAction(control) || (control instanceof HTMLInputElement && control.type === "file")));
+    const associatedFileInput = nativeFileInput ? el as HTMLInputElement : uploadAction ? fileInputFor(el) : null;
+    const fileUploadControl = nativeFileInput || completedUpload ||
+      (uploadAction && isFileUploadAction(el) &&
+        (associatedFileInput !== null || isFileUploadPrompt(el)));
+    const interactive = INTERACTIVE.has(role) || fileUploadControl;
     const media = role === "image" || role === "canvas" || role === "video" || role === "iframe";
     const isTextBlock = TEXT_TAGS.has(tag);
     if (!interactive && !media && !isTextBlock) continue;
@@ -368,10 +380,16 @@ export function perceive(doc: Document): Snapshot {
     if (owner && ["textbox", "combobox", "listbox"].includes(roleOf(owner)) && isVisible(owner) &&
       (interactive || isTextBlock)) continue;
     if (!interactive && (el.getBoundingClientRect().bottom < 0 || el.getBoundingClientRect().top > window.innerHeight)) continue;
+    if (fileUploadControl && associatedFileInput) {
+      if (seenFileInputs.has(associatedFileInput)) continue;
+      seenFileInputs.add(associatedFileInput);
+    }
 
     const rect = el.getBoundingClientRect();
     const box: RawRegion["box"] = [rect.x, rect.y, rect.width, rect.height];
-    const label = labelOf(el);
+    const label = fileUploadControl && !(el instanceof HTMLInputElement)
+      ? questionTitle(el) ?? labelOf(el)
+      : labelOf(el);
 
     if (interactive) {
       const state: NonNullable<RawRegion["state"]> = {};
@@ -404,6 +422,18 @@ export function perceive(doc: Document): Snapshot {
       } else if (el.getAttribute("aria-disabled") === "true") {
         state.disabled = true;
       }
+      const fileInput = fileUploadControl ? fileInputFor(el) : null;
+      if (fileUploadControl) {
+        rawValue = fileUploadValue(el);
+        state.filled = rawValue.length > 0;
+        const question = questionOf(el);
+        state.required = Boolean(fileInput?.required || el.getAttribute("aria-required") === "true" ||
+          question?.getAttribute("aria-required") === "true" ||
+          question?.querySelector('[data-automation-id="requiredStar"], [data-automation-id="required"], .freebirdFormviewerComponentsQuestionBaseRequiredAsterisk') ||
+          question?.textContent?.includes("*"));
+        state.disabled = state.disabled === true || fileInput?.disabled === true;
+        state.partially_visible = rect.top < 0 || rect.bottom > window.innerHeight;
+      }
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
         const ariaChecked = el.getAttribute("aria-checked");
         const ariaExpanded = el.getAttribute("aria-expanded");
@@ -421,7 +451,7 @@ export function perceive(doc: Document): Snapshot {
       }
       const feedback = formFeedback(el);
       const controlRole = ["textbox", "password", "combobox", "listbox"].includes(role);
-      if (controlRole) {
+      if (controlRole && !fileUploadControl) {
         rawValue = controlValue(el);
         state.filled = rawValue.trim().length > 0;
         state.invalid = feedback.invalid;
@@ -455,7 +485,19 @@ export function perceive(doc: Document): Snapshot {
       if (rawValue !== undefined) region.rawValue = rawValue;
       if (cls) region.structuralClass = cls;
       if (validationMessage) region.validationMessage = validationMessage;
-      if (controlRole) {
+      if (fileUploadControl) {
+        const help = fileUploadHelp(el);
+        const triggerLabel = labelOf(el);
+        region.control = {
+          kind: "text",
+          inputType: "file",
+          fileInputAvailable: fileInput !== null,
+          ...(fileInput?.accept ? { accept: fileInput.accept } : {}),
+          ...(triggerLabel ? { triggerLabel } : {}),
+          ...(help ? { help } : {}),
+        };
+        region.evidence.push("structural:form-control", "structural:input_type=file");
+      } else if (controlRole) {
         const choices = choiceNodes(el);
         const target = editableTarget(el);
         region.control = {

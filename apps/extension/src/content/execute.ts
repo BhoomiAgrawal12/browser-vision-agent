@@ -1,6 +1,6 @@
 import type { ExecuteResponse, Grounding, ResolvedStep } from "../shared/messages.js";
 import { labelOf, roleOf } from "./perceive.js";
-import { choiceLabel, choiceNodes, controlValue, editableTarget, formFeedback, isDisplayed, selected } from "./form-controls.js";
+import { choiceLabel, choiceNodes, controlValue, editableTarget, formFeedback, isDisplayed, isFilePickerVisible, openFilePickerInput, selected } from "./form-controls.js";
 
 /**
  * The hands, with the re-grounding check in front of them. Between capture
@@ -238,5 +238,122 @@ export async function executeStep(
 
     default:
       return { ok: false, error: "unsupported" };
+  }
+}
+
+function acceptedFile(input: HTMLInputElement, file: Pick<File, "name" | "type">): boolean {
+  const tokens = input.accept.split(",").map((token) => token.trim().toLowerCase()).filter(Boolean);
+  if (!tokens.length) return true;
+  const name = file.name.toLowerCase();
+  const mime = file.type.toLowerCase();
+  return tokens.some((token) => token.startsWith(".")
+    ? name.endsWith(token)
+    : token.endsWith("/*")
+      ? mime.startsWith(token.slice(0, -1))
+      : mime === token);
+}
+
+async function completeFilePicker(picker: Element, signal?: AbortSignal): Promise<NonNullable<ExecuteResponse["pickerCompletion"]>> {
+  let sawFinish = false;
+  let clickedUpload = false;
+  const roots = (): ParentNode[] => {
+    const found: ParentNode[] = [picker];
+    const visit = (root: ParentNode): void => {
+      for (const frame of root.querySelectorAll<HTMLIFrameElement>("iframe")) {
+        try {
+          const doc = frame.contentDocument;
+          if (doc && !found.includes(doc)) { found.push(doc); visit(doc); }
+        } catch { /* Inaccessible picker frames cannot be completed by this helper. */ }
+      }
+    };
+    visit(picker);
+    return found;
+  };
+  for (let poll = 0; poll < 150; poll++) {
+    if (signal?.aborted) return "cancelled";
+    if (!picker.isConnected || !isFilePickerVisible(picker)) return "closed";
+    const scope = roots();
+    const buttons = [...new Set(scope.flatMap((root) => [...root.querySelectorAll<HTMLElement>('button, [role="button"]')]))].filter(isDisplayed);
+    const label = (button: HTMLElement) => (button.getAttribute("aria-label") ?? button.textContent ?? "").trim();
+    const finalAction = /^(?:insert|select|done)(?:\s*\(?\d+\)?(?:\s+files?)?)?$/i;
+    const uploadAction = /^upload(?:\s+\d+(?:\s+files?)?)?$/i;
+    const candidates = buttons.filter((button) => finalAction.test(label(button)) || uploadAction.test(label(button)));
+    sawFinish ||= candidates.length > 0;
+    const busy = scope.some((root) => [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"], progress')].some(isDisplayed));
+    const enabled = candidates.filter((button) => !button.hasAttribute("disabled") && !isDisabled(button) && (!clickedUpload || finalAction.test(label(button))));
+    const final = enabled.filter((button) => finalAction.test(label(button)));
+    const ready = final.length ? final : enabled;
+    if (poll > 0 && !busy && ready.length === 1) {
+      const isFinal = finalAction.test(label(ready[0]!));
+      ready[0]!.click();
+      if (isFinal) return "completed";
+      clickedUpload = true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return sawFinish ? "pending" : "unavailable";
+}
+
+/** Attach a file only after an explicit user choice in the extension panel. */
+export async function attachSelectedFile(
+  el: Element | undefined,
+  payload: { name: string; mimeType: string; data_b64: string; maxBytes?: number; sha256?: string },
+  signal?: AbortSignal,
+): Promise<ExecuteResponse> {
+  if (signal?.aborted) return { ok: false, error: "failed", detail: "upload cancelled" };
+  if (!el?.isConnected) return { ok: false, error: "regrounding_failed", detail: "upload control changed before attachment" };
+  const { input: target, picker } = await openFilePickerInput(el, signal);
+  if (signal?.aborted) return { ok: false, error: "failed", detail: "upload cancelled" };
+  if (!target || target.type !== "file") {
+    return { ok: false, error: "unsupported", detail: "The page's upload picker has no uniquely accessible file input. Cross-origin or account-specific picker support is required." };
+  }
+  if (target.disabled) return { ok: false, error: "failed", detail: "file input is disabled" };
+  if (!acceptedFile(target, { name: payload.name, type: payload.mimeType })) {
+    return { ok: false, error: "validation_failed", uploadReason: "file_type_not_accepted", detail: "The selected file type is not accepted by this field." };
+  }
+
+  try {
+    const binary = atob(payload.data_b64);
+    if (payload.maxBytes !== undefined && binary.length > payload.maxBytes) {
+      return { ok: false, error: "validation_failed", uploadReason: "file_size_limit", detail: "The selected file exceeds this upload field's size limit." };
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    if (signal?.aborted) return { ok: false, error: "failed", detail: "upload cancelled" };
+    const sha256 = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+    if (payload.sha256 && sha256 !== payload.sha256) return { ok: false, error: "failed", detail: "sanitized upload hash changed" };
+    if (!target.isConnected || !el.isConnected) return { ok: false, error: "regrounding_failed", detail: "upload control changed before file dispatch" };
+    if (target.files?.length) {
+      const current = target.files[0]!;
+      if (target.files.length !== 1 || current.size !== bytes.length || current.type !== payload.mimeType) {
+        return { ok: false, error: "failed", uploadReason: "different_existing_file", detail: "The field already contains a different file; it was not replaced." };
+      }
+      const currentDigest = await crypto.subtle.digest("SHA-256", await current.arrayBuffer());
+      const currentHash = [...new Uint8Array(currentDigest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+      if (currentHash !== sha256) return { ok: false, error: "failed", uploadReason: "different_existing_file", detail: "The field already contains a different file; it was not replaced." };
+      const pickerCompletion = picker ? await completeFilePicker(picker, signal) : undefined;
+      return { ok: true, fileDispatched: true, fileSha256: sha256, ...(pickerCompletion ? { pickerCompletion } : {}) };
+    }
+    const safeName = payload.name.split(/[\\/]/).pop() || "attachment";
+    const realm = target.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+    const file = new (realm?.File ?? File)([bytes], safeName, { type: payload.mimeType || "application/octet-stream" });
+    const transfer = new (realm?.DataTransfer ?? DataTransfer)();
+    transfer.items.add(file);
+    if (signal?.aborted) return { ok: false, error: "failed", detail: "upload cancelled" };
+    target.files = transfer.files;
+    const retained = target.files?.length === 1 && target.files[0]?.size === bytes.length;
+    if (!retained) return { ok: false, error: "failed", detail: "The page did not retain the selected file." };
+    target.dispatchEvent(new (realm?.Event ?? Event)("input", { bubbles: true }));
+    target.dispatchEvent(new (realm?.Event ?? Event)("change", { bubbles: true }));
+    const pickerCompletion = picker ? await completeFilePicker(picker, signal) : undefined;
+    const completion = pickerCompletion ? { pickerCompletion } : {};
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    if (!target.isConnected || !el.isConnected) return { ok: true, fileDispatched: true, fileSha256: sha256, ...completion, detail: "File handed to the page; verify the re-rendered upload field." };
+    const feedback = formFeedback(el!);
+    if (feedback.invalid) return { ok: false, error: "validation_failed", fileDispatched: true, fileSha256: sha256, detail: feedback.message || "The page rejected the selected file." };
+    return { ok: true, fileDispatched: true, fileSha256: sha256, ...completion };
+  } catch {
+    return { ok: false, error: "failed", detail: "The selected file could not be attached to this field." };
   }
 }

@@ -139,6 +139,43 @@ describe("Tier 0 DOM perception", () => {
     });
   });
 
+  it("discovers a required Profile Photo upload button paired with a hidden native file input", () => {
+    const { document } = dom;
+    document.body.innerHTML = `
+      <section role="listitem">
+        <div role="heading">Profile Photo *</div>
+        <p>Upload 1 supported file. Max 10 MB.</p>
+        <button id="upload" type="button">Add file</button>
+        <input id="photo" type="file" accept="image/png" required style="display:none">
+      </section>
+    `;
+    const upload = document.querySelector("#upload")!;
+    setRect(upload, { x: 12, y: 40, width: 104, height: 32 });
+
+    const snapshot = perceive(document as unknown as Document);
+    const field = snapshot.regions.find((region) => region.control?.inputType === "file");
+
+    expect(field).toMatchObject({
+      role: "button",
+      label: "Profile Photo",
+      state: { required: true, filled: false },
+      control: { inputType: "file", fileInputAvailable: true, help: "Upload 1 supported file. Max 10 MB" },
+      evidence: expect.arrayContaining(["structural:input_type=file"]),
+    });
+    expect(snapshot.elements.get(field!.id)).toBe(upload);
+    expect(snapshot.regions.some((region) => region.id !== field!.id && region.label === "Profile Photo")).toBe(false);
+  });
+
+  it("keeps an uploaded-file question after the picker input and trigger disappear", () => {
+    const { document } = dom;
+    document.body.innerHTML = `<form><section role="listitem"><div role="heading">Profile Photo *</div><div role="listitem"><span data-file-name="sanitized-image.png">sanitized-image.png</span><button aria-label="Remove file">Remove</button></div></section></form>`;
+    for (const element of document.querySelectorAll("section, span, button")) setRect(element);
+    const snapshot = perceive(document as unknown as Document);
+    const fields = snapshot.regions.filter((region) => region.control?.inputType === "file");
+    expect(fields).toHaveLength(1);
+    expect(fields[0]).toMatchObject({ label: "Profile Photo", rawValue: "file selected", state: { filled: true, required: true }, control: { fileInputAvailable: false } });
+  });
+
   it("omits hidden content and masks every media box until vision explains it", () => {
     const { document } = dom;
     document.body.innerHTML = `
