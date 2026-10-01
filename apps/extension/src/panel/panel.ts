@@ -38,9 +38,15 @@ import {
   type PerceiveResponse,
   type ResolvedStep,
 } from "../shared/messages.js";
-import { promptAnswerForField, promptMemoryKeys, rememberPromptAnswers } from "./prompt-memory.js";
+import { enteredTextFieldKey, lostEnteredTextField, promptAnswerForField, promptMemoryKeys, rememberPromptAnswers, type EnteredTextField } from "./prompt-memory.js";
 import { buildLocalRedactionAudit } from "./redaction-audit.js";
 import { createVisualPreview } from "./visual-preview.js";
+import { fileFieldLimit, filePayload, requestPageFile, type FileChoice } from "./file-prompt.js";
+import { prepareSanitizedUpload, reviewSanitizedUpload } from "./sanitized-upload.js";
+import { uploadReviewedFile, type UploadEvent } from "./upload-reviewed.js";
+import type { MediaPreview } from "../media/panel.js";
+import { assetUrl } from "../media/assets.js";
+import { detectBarcodeRegions } from "../media/barcodes.js";
 import { DEFAULT_SERVER_URL, getPlannerHealth, makeTransport, type PlannerHealth } from "../transport.js";
 
 /**
@@ -59,6 +65,7 @@ const logEl = $("log");
 const packetView = $("packet-view");
 const receiptsEl = $("receipts");
 const runBtn = $<HTMLButtonElement>("run");
+const startBtn = $<HTMLButtonElement>("start-task");
 const stopBtn = $<HTMLButtonElement>("stop");
 const plannerStatus = $("planner-status");
 const visualPreview = createVisualPreview({
@@ -94,6 +101,16 @@ function log(text: string, kind: "ok" | "err" | "dim" | "" = ""): void {
   line.textContent = text;
   logEl.append(line);
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+const uploadEvents: (UploadEvent & { timestamp_ms: number })[] = [];
+function logUpload(event: UploadEvent): void {
+  const record = { timestamp_ms: Date.now(), ...event };
+  uploadEvents.push(record);
+  if (uploadEvents.length > 200) uploadEvents.shift();
+  console.info("dravika.upload", JSON.stringify(record));
+  log(`upload.${event.stage}: attempt=${event.attempt}${event.snapshot_id !== undefined ? ` snapshot=${event.snapshot_id}` : ""}${event.target_id ? ` target=${event.target_id}` : ""}${event.native_input !== undefined ? ` native_input=${event.native_input}` : ""}${event.reason ? ` reason=${event.reason}` : ""}`, event.stage === "failed" ? "err" : "dim");
+  $<HTMLButtonElement>("export-activity").disabled = false;
 }
 
 function renderAuditEvent(event: EgressAuditEvent): void {
@@ -191,13 +208,41 @@ function confirmAction(text: string): Promise<boolean> {
 /* Session state */
 
 const vault = new Vault();
+// Public option labels must not enter the secret vault's leak scan.
+const choiceMemory = new Vault();
+const askedFields = new Set<string>();
+const chosenFiles = new Map<string, FileChoice>();
+const fileReviews = new Map<string, { source: File; pageNumber: number; previewHash: string; file: File; sha256: string; uploadId: string; approved?: boolean }>();
+let activeUpload: { tabId: number; uploadId: string } | null = null;
+function cancelActiveUpload(): void {
+  if (!activeUpload) return;
+  const { tabId, uploadId } = activeUpload;
+  activeUpload = null;
+  void sendToTab(tabId, { type: "cancel-upload", uploadId }).catch(() => {});
+}
+let filePreview: MediaPreview | null = null;
+async function getFilePreview(): Promise<MediaPreview> {
+  if (!filePreview) {
+    const module = await import(assetUrl("media.js")) as typeof import("../media/panel.js");
+    if (!filePreview) filePreview = module.createMediaPreview();
+  }
+  return filePreview;
+}
+function clearProcessMemory(): void {
+  cancelActiveUpload();
+  vault.wipe();
+  choiceMemory.wipe();
+  askedFields.clear();
+  chosenFiles.clear();
+  fileReviews.clear();
+  filePreview?.clear();
+}
 const registry = defaultRegistry();
 const policy = new PolicyEngine(registry, vault, POLICY_VERSION);
 let lastHostname: string | null = null;
 let lastTabId: number | null = null;
 let stopRequested = false;
 let activeTaskIntent: string | null = null;
-let resumeAfterSameOriginNavigation = false;
 
 const gate = new EgressGate({
   transport: makeTransport(DEFAULT_SERVER_URL),
@@ -236,7 +281,7 @@ async function verifyFormState(tabId: number): Promise<void> {
       return;
     }
     const fillable = new Set(["textbox", "password", "combobox", "listbox"]);
-    const fields = perception.regions.filter((region) => fillable.has(region.role));
+    const fields = perception.regions.filter((region) => fillable.has(region.role) || region.control?.inputType === "file");
     const filled = fields.filter((field) => field.state?.filled === true).length;
     const requiredEmpty = fields.filter((field) => {
       return field.state?.required === true && field.state?.filled !== true && field.state?.disabled !== true;
@@ -271,7 +316,7 @@ const PROMPT_FIELD_ROLES = new Set(["textbox", "password", "combobox", "listbox"
 
 function promptFields(regions: RawRegion[]): PromptField[] {
   return regions
-    .filter((region) => PROMPT_FIELD_ROLES.has(region.role))
+    .filter((region) => PROMPT_FIELD_ROLES.has(region.role) && region.control?.inputType !== "file")
     .map((region) => ({
       id: region.id,
       label: region.label,
@@ -288,7 +333,7 @@ const REVIEW_ROLES = new Set([
 ]);
 
 function reviewForm(regions: RawRegion[]): Promise<boolean> {
-  const fields = regions.filter((region) => REVIEW_ROLES.has(region.role));
+  const fields = regions.filter((region) => REVIEW_ROLES.has(region.role) || region.control?.inputType === "file");
   const editable = fields.filter((field) => field.state?.disabled !== true && field.state?.readonly !== true);
   const missing = editable.filter((field) => field.state?.required === true && field.state?.filled !== true && field.state?.invalid !== true);
   const invalid = editable.filter((field) => field.state?.invalid === true);
@@ -405,7 +450,8 @@ function faceModel(): Promise<FaceModel | null> {
         const bytes = await defaultModelHost().load({ ...ULTRAFACE_MANIFEST, url: chrome.runtime.getURL("models/ultraface-rfb-320.onnx") });
         const model = await createOrtFaceModel(ortNs, bytes, {
           wasmPaths: "ort/",
-          executionProviders: ["webgpu", "wasm"],
+          // CPU inference is reliable even when the browser exposes no GPU adapter.
+          executionProviders: ["wasm"],
         });
         visionBackend = model.backend ?? "none";
         log("face detector ready (ultraface-rfb-320, on-device)", "dim");
@@ -469,6 +515,24 @@ async function detectFaceRegions(
   }));
 }
 
+async function detectVisualRegions(frame: CaptureFrame, perception: PerceiveResponse): Promise<RawRegion[]> {
+  const faces = await detectFaceRegions(frame, perception);
+  const nextId = Math.max(0, ...perception.regions.map((region) => Number(region.id.slice(1)))) + faces.length + 1;
+  const factor = perception.meta.viewport.dpr * frame.scale;
+  try {
+    const boxes = detectBarcodeRegions(frame.image);
+    if (boxes.length) log(`  ${boxes.length} QR/barcode region(s) located locally for blacking`, "ok");
+    return [...faces, ...boxes.map((box, index): RawRegion => ({
+      id: `e${nextId + index}`, role: "image", label: null,
+      box: [box[0]/factor, box[1]/factor, box[2]/factor, box[3]/factor],
+      source: "vision", confidence: 0.9, evidence: ["visual:qr-barcode-geometry"], explained: true, visualClass: "QR_BARCODE",
+    }))];
+  } catch {
+    log("  QR inspection failed; screenshot fully masked", "dim");
+    return [...faces, { id: `e${nextId}`, role: "image", label: null, box: [0, 0, frame.image.width/factor, frame.image.height/factor], source: "vision", confidence: 0.2, evidence: ["fusion:qr-inspection-failed"], explained: false }];
+  }
+}
+
 /* The visual pipeline: dirty-tile reuse, compose, self-check. */
 
 async function buildVisual(
@@ -527,10 +591,6 @@ async function resolveStep(
   promptAnswers: PromptAnswer[],
   correction?: string,
 ): Promise<ResolvedStep | "cancelled"> {
-  if (rawElement?.control?.inputType === "file") {
-    log("This question requires a file upload. Choose the file on the page, then run Dravika again.", "err");
-    return "cancelled";
-  }
   const resolved: ResolvedStep = { action: step.action };
   if (step.target_element_id) resolved.targetId = step.target_element_id;
   if (step.scroll) resolved.scroll = step.scroll;
@@ -539,25 +599,35 @@ async function resolveStep(
   if (step.value) {
     switch (step.value.kind) {
       case "user_prompt": {
-        const memoryKeys = element ? promptMemoryKeys(packet, element, step.value.prompt_text) : [];
-        const supplied = !correction && element
-          ? promptAnswerForField(promptAnswers, element.id, element.state)
-          : undefined;
-        if (supplied !== undefined) {
-          log("  using the locally supplied task value for this field", "dim");
-          if (step.action === "select") resolved.optionLabel = supplied;
-          else resolved.text = supplied;
-          break;
-        }
+        const memoryKeys = element ? promptMemoryKeys(packet, element) : [];
+        const questionKey = memoryKeys[1];
+        const memory = step.action === "select" ? choiceMemory : vault;
         const rejectedFilledValue = Boolean(correction) || element?.state?.invalid === true;
-        const remembered = rejectedFilledValue
-          ? undefined
-          : memoryKeys.map((key) => vault.recall(key)).find((value) => value !== undefined);
+        if (rejectedFilledValue && questionKey && askedFields.has(questionKey)) {
+          log(`The form rejected the answer for “${element?.label ?? "this field"}”. Stopped instead of asking again. ${correction || rawElement?.validationMessage || "Review this field on the webpage."}`, "err");
+          return "cancelled";
+        }
+        const remembered = rejectedFilledValue ? undefined
+          : memoryKeys.map((key) => memory.recall(key)).find((value) => value !== undefined);
         if (remembered !== undefined) {
           log("  reusing the remembered answer for this form field", "dim");
           if (step.action === "select") resolved.optionLabel = remembered;
           else resolved.text = remembered;
           break;
+        }
+        const supplied = !correction && element
+          ? promptAnswerForField(promptAnswers, element.id, element.state)
+          : undefined;
+        if (supplied !== undefined) {
+          log("  using the locally supplied task value for this field", "dim");
+          for (const key of memoryKeys) memory.remember(key, supplied);
+          if (step.action === "select") resolved.optionLabel = supplied;
+          else resolved.text = supplied;
+          break;
+        }
+        if (!questionKey || askedFields.has(questionKey)) {
+          log("This question was already answered or cannot be identified reliably. Stopping for webpage review instead of asking again.", "err");
+          return "cancelled";
         }
         const label = element?.label?.trim() || `the ${element?.role ?? "form"} field`;
         const validation = correction || (rawElement?.state?.invalid ? rawElement.validationMessage?.trim() : "");
@@ -576,7 +646,8 @@ async function resolveStep(
         );
         if (answer === null) return "cancelled";
         if (stopRequested) return "cancelled";
-        if (step.action !== "select") for (const key of memoryKeys) vault.remember(key, answer);
+        askedFields.add(questionKey);
+        for (const key of memoryKeys) memory.remember(key, answer);
         if (step.action === "select") resolved.optionLabel = answer;
         else resolved.text = answer;
         break;
@@ -585,9 +656,17 @@ async function resolveStep(
         const token = step.value.token;
         const real = vault.resolve(token);
         if (real === undefined) {
+          const keys = element ? promptMemoryKeys(packet, element) : [];
+          const questionKey = keys[1];
+          if (!questionKey || askedFields.has(questionKey)) {
+            log("This answer is no longer available locally. Stopping instead of asking for it again.", "err");
+            return "cancelled";
+          }
           log(`vault has no value for ${token}; asking user`, "dim");
           const answer = await ask(`The plan needs the value behind ${token}. Provide it:`);
           if (answer === null) return "cancelled";
+          if (stopRequested) return "cancelled";
+          askedFields.add(questionKey);
           if (element) {
             for (const key of promptMemoryKeys(packet, element)) vault.remember(key, answer);
           }
@@ -618,19 +697,19 @@ async function resolveStep(
 async function runTask(): Promise<void> {
   if (runBtn.disabled) return;
   const intent = $<HTMLTextAreaElement>("task").value.trim();
-  const mode = $<HTMLSelectElement>("mode").value as PrivacyMode;
+  const mode: PrivacyMode = "shield";
   if (!intent) {
     log("type a task first", "err");
     return;
   }
 
-  if (activeTaskIntent !== intent || !resumeAfterSameOriginNavigation) {
-    vault.wipe();
+  if (activeTaskIntent !== intent) {
+    clearProcessMemory();
   }
   activeTaskIntent = intent;
-  resumeAfterSameOriginNavigation = false;
 
   runBtn.disabled = true;
+  startBtn.disabled = true;
   stopBtn.disabled = false;
   stopRequested = false;
   const history: TaskHistoryStep[] = [];
@@ -639,18 +718,19 @@ async function runTask(): Promise<void> {
   let stalled = 0;
   const clicked = new Set<string>();
   const correctionAttempts = new Map<string, number>();
+  const enteredTextFields: EnteredTextField[] = [];
 
   try {
     const tab = await activeTab();
     taskTabId = tab.id!;
     const hostname = tab.url ? new URL(tab.url).origin : "";
     if (lastTabId !== null && tab.id !== lastTabId) {
-      vault.wipe();
+      clearProcessMemory();
       lastHostname = null;
       log("active tab changed; vault wiped", "dim");
     }
     if (lastHostname !== null && hostname !== lastHostname) {
-      vault.wipe();
+      clearProcessMemory();
       log("origin changed; vault wiped", "dim");
     }
     lastTabId = tab.id!;
@@ -660,7 +740,7 @@ async function runTask(): Promise<void> {
     if (!initialCheck.ok) throw new Error("local page self-check failed");
     if (initialCheck.meta.truncated) throw new Error("This page exceeds the 300-element capture limit. Open a smaller form section before continuing.");
     if (initialCheck.meta.pageKind.startsWith("form")) {
-      const editable = initialCheck.regions.filter((region) => REVIEW_ROLES.has(region.role));
+      const editable = initialCheck.regions.filter((region) => REVIEW_ROLES.has(region.role) || region.control?.inputType === "file");
       log(`local self-check: ${editable.length} form question controls found; awaiting your review`, "dim");
       if (!await reviewForm(initialCheck.regions) || stopRequested) {
         log("cancelled before planning; no packet was sent", "dim");
@@ -673,6 +753,14 @@ async function runTask(): Promise<void> {
       const perception = await sendToTab<PerceiveResponse>(tab.id!, { type: "perceive" });
       if (!perception.ok) throw new Error("perception failed");
       if (perception.meta.truncated) throw new Error("This page exceeds the 300-element capture limit. Open a smaller form section before continuing.");
+      const lostAnswer = lostEnteredTextField(enteredTextFields, perception.regions);
+      if (lostAnswer) {
+        const label = lostAnswer.region.label ?? "a required field";
+        log(lostAnswer.region.state?.invalid
+          ? `“${label}” is still rejected after ${lostAnswer.attempts} entries. Stopped instead of asking again; check the webpage's validation message.`
+          : `The page cleared “${label}” after accepting input. Stopped instead of asking again; check that field's validation on the webpage.`, "err");
+        return;
+      }
       log(`  ${perception.regions.length} regions from structure`);
 
       const promptExtraction = extractPromptAnswers(intent, promptFields(perception.regions), registry);
@@ -681,11 +769,11 @@ async function runTask(): Promise<void> {
       // Capture before sanitization so the on-device face pass can add
       // regions the DOM knows nothing about; the same frame then feeds
       // the composer, so what was scanned is exactly what is redacted.
-      const frame = mode === "wireframe" ? null : await tryCapture();
-      const faceRegions = frame ? await detectFaceRegions(frame, perception) : [];
+      const frame = await tryCapture();
+      const visualRegions = frame ? await detectVisualRegions(frame, perception) : [];
 
       const sanitized = policy.sanitize(
-        [...perception.regions, ...faceRegions],
+        [...perception.regions, ...visualRegions],
         mode,
         perception.meta.pageKind.startsWith("form")
           ? "Help complete the form sequentially. Values and corrections are supplied locally."
@@ -772,7 +860,7 @@ async function runTask(): Promise<void> {
       for (const step of plan.steps) {
         if (stopRequested) break;
         if (step.action === "done") {
-          const pending = perception.regions.some((r) => PROMPT_FIELD_ROLES.has(r.role) && !r.state?.disabled && !r.state?.readonly &&
+          const pending = perception.regions.some((r) => (PROMPT_FIELD_ROLES.has(r.role) || r.control?.inputType === "file") && !r.state?.disabled && !r.state?.readonly &&
             (r.state?.invalid || (r.state?.required && !r.state?.filled)));
           log(pending ? "Required or invalid fields remain; stopping for review." : "No further planned action. Check the form's confirmation before treating it as submitted.", pending ? "err" : "dim");
           return;
@@ -781,6 +869,86 @@ async function runTask(): Promise<void> {
           log("plan aborted by server", "err");
           return;
         }
+        const el = packet.elements.find((x) => x.id === step.target_element_id);
+        const rawEl = perception.regions.find((x) => x.id === step.target_element_id);
+        if (rawEl?.control?.inputType === "file" || el?.evidence.includes("structural:input_type=file")) {
+          if (!el || !rawEl) { log("The upload field changed. Run again to review the page.", "err"); return; }
+          if (rawEl.state?.filled && !rawEl.state.invalid) continue;
+          const questionKey = promptMemoryKeys(packet, el)[1]!;
+          if (rawEl.state?.invalid && askedFields.has(questionKey)) {
+            log("The webpage rejected the selected file. Stopping instead of asking again; review the upload field on the webpage.", "err");
+            return;
+          }
+          let choice = chosenFiles.get(questionKey);
+          if (!choice) {
+            if (askedFields.has(questionKey)) { log("The webpage did not retain the file selection. Stopping instead of asking again.", "err"); return; }
+            const answer = await requestPageFile({
+              label: rawEl.label ?? "the file upload field",
+              accept: rawEl.control?.accept,
+              help: rawEl.control?.help,
+            });
+            if (answer === null || stopRequested) { log("  file selection cancelled", "dim"); return; }
+            askedFields.add(questionKey);
+            choice = answer;
+            chosenFiles.set(questionKey, choice);
+          }
+          {
+            const preview = await getFilePreview();
+            if (stopRequested) return;
+            const identityDocumentHint = rawEl.structuralClass === "AADHAAR" || /aadha?ar|aadhar|passport|identity\s*(?:card|document)|pan\s*card/i.test(rawEl.label ?? "");
+            const sanitizedFile = await preview.inspect(choice.file, choice.pageNumber, { identityDocumentHint });
+            if (stopRequested) return;
+            if (!sanitizedFile) { log("File processing stopped: the sanitized preview could not be verified.", "err"); return; }
+            let review = fileReviews.get(questionKey);
+            if (!review || review.source !== choice.file || review.pageNumber !== choice.pageNumber || review.previewHash !== sanitizedFile.packet.visual.sha256) {
+              const upload = await prepareSanitizedUpload(sanitizedFile, rawEl.control?.accept ?? "", fileFieldLimit(rawEl.control?.help), choice.file.type);
+              if (stopRequested) return;
+              review = { source: choice.file, pageNumber: choice.pageNumber, previewHash: sanitizedFile.packet.visual.sha256!, uploadId: crypto.randomUUID(), ...upload };
+              fileReviews.set(questionKey, review);
+            }
+            if (review.approved === false) { log("This file upload was rejected. Nothing was attached.", "dim"); return; }
+            if (review.approved !== true) {
+              preview.showUpload(review.file, review.sha256, "awaiting_approval");
+              review.approved = await reviewSanitizedUpload(review.file, sanitizedFile.sanitized, rawEl.label ?? "file upload");
+              if (stopRequested) return;
+              if (!review.approved) {
+                preview.showUpload(review.file, review.sha256, "rejected");
+                log("File upload rejected after review; nothing was attached.", "dim");
+                return;
+              }
+            }
+            preview.showUpload(review.file, review.sha256, "approved");
+            const payload = await filePayload(review.file, fileFieldLimit(rawEl.control?.help));
+            if (stopRequested) return;
+            preview.showUpload(review.file, review.sha256, "uploading");
+            activeUpload = { tabId: tab.id!, uploadId: review.uploadId };
+            const attached = await uploadReviewedFile({
+              io: {
+                perceive: () => sendToTab<PerceiveResponse>(tab.id!, { type: "perceive" }),
+                attach: (request) => sendToTab<ExecuteResponse>(tab.id!, request),
+              },
+              target: rawEl, regions: perception.regions,
+              file: { ...payload, sha256: review.sha256 },
+              uploadId: review.uploadId,
+              stopped: () => stopRequested, event: logUpload,
+            });
+            activeUpload = null;
+            if (stopRequested) return;
+            if (!attached.ok) {
+              preview.showUpload(review.file, review.sha256, "failed", attached.reason);
+              log(`Could not attach the sanitized file: ${attached.reason}. Expand Activity and use Export activity for the upload diagnostics.`, "err");
+              return;
+            }
+          }
+          const acceptedReview = fileReviews.get(questionKey)!;
+          filePreview?.showUpload(acceptedReview.file, acceptedReview.sha256, "attached");
+          log(`  ✓ approved sanitized file accepted by ${rawEl.label ?? "upload"}`, "ok");
+          stalled = 0;
+          rePerceiveAfterAnswer = true;
+          break;
+        }
+        const clickKey = `${el?.id}|${el?.label}|${perception.regions.filter((r) => r.control).map((r) => r.id).join(",")}`;
+        if (step.action === "click" && clicked.has(clickKey)) { log("The same button was requested again without a page transition. Stopping for review.", "err"); return; }
         if (step.requires_confirmation) {
           const approved = await confirmAction(
             step.confirmation_reason ??
@@ -792,8 +960,6 @@ async function runTask(): Promise<void> {
           }
           if (stopRequested) return;
         }
-        const el = packet.elements.find((x) => x.id === step.target_element_id);
-        const rawEl = perception.regions.find((x) => x.id === step.target_element_id);
         const answerStep =
           step.action === "type" ||
           step.action === "select" ||
@@ -805,8 +971,6 @@ async function runTask(): Promise<void> {
           return;
         }
         if (stopRequested) return;
-        const clickKey = `${el?.id}|${el?.label}|${perception.regions.filter((r) => r.control).map((r) => r.id).join(",")}`;
-        if (step.action === "click" && clicked.has(clickKey)) { log("The same button was requested again without a page transition. Stopping for review.", "err"); return; }
         let grounding: Grounding | undefined;
         if (el) {
           grounding = {
@@ -837,6 +1001,20 @@ async function runTask(): Promise<void> {
           executedSomething = true;
           stalled = 0;
           correction = null;
+          if (step.action === "type" && rawEl?.state?.required === true && rawEl.label &&
+            !enteredTextFields.some((field) => field.key === enteredTextFieldKey(perception.regions, rawEl))) {
+            enteredTextFields.push({
+              id: rawEl.id,
+              role: rawEl.role,
+              label: rawEl.label,
+              key: enteredTextFieldKey(perception.regions, rawEl),
+              attempts: 1,
+            });
+          } else if (step.action === "type" && rawEl?.state?.required === true && rawEl.label) {
+            const key = enteredTextFieldKey(perception.regions, rawEl);
+            const previous = enteredTextFields.find((field) => field.key === key);
+            if (previous) previous.attempts++;
+          }
           if (step.action === "click") clicked.add(clickKey);
           if (answerStep) rePerceiveAfterAnswer = true;
           if (step.action === "click" && step.requires_confirmation && !/^(next|continue|back|previous)\b/i.test(el?.label ?? "")) {
@@ -846,6 +1024,10 @@ async function runTask(): Promise<void> {
           if (answerStep) break;
           if (step.action === "click") { rePerceiveAfterAnswer = !stateChangingActionExecuted; break; }
         } else if (result.error === "validation_failed" && rawEl) {
+          if (el && askedFields.has(promptMemoryKeys(packet, el)[1]!)) {
+            log(`The form rejected the answer for “${rawEl.label ?? "this field"}”. Stopped instead of asking again. ${result.detail ?? "Review the field on the webpage."}`, "err");
+            return;
+          }
           const attempts = (correctionAttempts.get(rawEl.id) ?? 0) + 1;
           correctionAttempts.set(rawEl.id, attempts);
           if (attempts > 3) { log("Three corrections were rejected. Stopping so you can review this field on the page.", "err"); return; }
@@ -894,16 +1076,32 @@ async function runTask(): Promise<void> {
   } catch (e) {
     log(`error: ${(e as Error).message}`, "err");
   } finally {
+    cancelActiveUpload();
     if (taskTabId !== null && !stopRequested) await verifyFormState(taskTabId);
     runBtn.disabled = false;
+    startBtn.disabled = false;
     stopBtn.disabled = true;
   }
 }
 
-runBtn.addEventListener("click", () => void runTask());
+startBtn.addEventListener("click", () => {
+  const dialog = $<HTMLDialogElement>("task-dialog");
+  dialog.returnValue = "cancel";
+  dialog.showModal();
+  $<HTMLTextAreaElement>("task").focus();
+});
+$<HTMLDialogElement>("task-dialog").addEventListener("close", (event) => {
+  if ((event.currentTarget as HTMLDialogElement).returnValue === "run") void runTask();
+});
 $<HTMLButtonElement>("export-receipts").addEventListener("click", exportReceipts);
+$<HTMLButtonElement>("export-activity").addEventListener("click", () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ upload_events: uploadEvents }, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = `dravika-upload-activity-${Date.now()}.json`; link.click();
+  URL.revokeObjectURL(url);
+});
 function cancelDialogs(): void {
-  for (const id of ["preflight", "ask", "confirm"]) {
+  for (const id of ["task-dialog", "preflight", "ask", "file-upload", "file-review", "confirm"]) {
     const dialog = $<HTMLDialogElement>(id);
     if (dialog.open) dialog.close("cancel");
   }
@@ -911,30 +1109,27 @@ function cancelDialogs(): void {
 stopBtn.addEventListener("click", () => {
   stopRequested = true;
   cancelDialogs();
-  vault.wipe();
+  clearProcessMemory();
   activeTaskIntent = null;
-  resumeAfterSameOriginNavigation = false;
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId !== lastTabId) return;
-  vault.wipe();
+  clearProcessMemory();
   stopRequested = true;
   cancelDialogs();
   lastTabId = null;
   lastHostname = null;
   activeTaskIntent = null;
-  resumeAfterSameOriginNavigation = false;
   log("active tab closed; vault wiped", "dim");
 });
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   if (lastTabId === null || tabId === lastTabId) return;
-  vault.wipe();
+  clearProcessMemory();
   stopRequested = true;
   cancelDialogs();
   lastTabId = tabId;
   lastHostname = null;
   activeTaskIntent = null;
-  resumeAfterSameOriginNavigation = false;
   log("active tab changed; task stopped and vault wiped", "dim");
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -946,15 +1141,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     // Invalid or browser-internal URLs are a security boundary.
   }
   if (!nextHostname || !lastHostname || nextHostname !== lastHostname) {
-    vault.wipe();
+    clearProcessMemory();
     activeTaskIntent = null;
-    resumeAfterSameOriginNavigation = false;
     lastHostname = null;
     log("origin changed; process memory wiped", "dim");
   } else {
-    resumeAfterSameOriginNavigation = true;
     log("same-origin navigation; preserving process memory", "dim");
   }
+  cancelActiveUpload();
   stopRequested = true;
   cancelDialogs();
 });
