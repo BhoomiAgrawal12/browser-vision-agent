@@ -49,6 +49,9 @@ export interface RawRegion {
   control?: {
     kind: "text" | "select" | "radio" | "checkboxes";
     inputType?: string;
+    fileInputAvailable?: boolean;
+    accept?: string;
+    triggerLabel?: string;
     help?: string;
     options?: string[];
   };
@@ -293,7 +296,7 @@ export class PolicyEngine {
         }
       }
       // 5. Empty control.
-      else if (this.isControl(r.role)) {
+      else if (this.isControl(r.role) || r.control?.inputType === "file") {
         value = { kind: "empty" };
       }
 
