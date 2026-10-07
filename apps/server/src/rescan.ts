@@ -9,6 +9,7 @@ import type { SanitizedContextPacket } from "@kavach/core/schema";
  */
 
 const registry = defaultRegistry();
+// Minimum detector confidence that counts as a strong hit and rejects the packet.
 const RESCAN_THRESHOLD = 0.8;
 const SAFE_PACKET_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{20,26})$/i;
 
