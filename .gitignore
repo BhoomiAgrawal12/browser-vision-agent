@@ -24,3 +24,8 @@ tools/deck/evidence-kit.html
 tools/deck/.chrome-kit/
 tools/deck/.chrome-ev/
 tools/deck/.chrome-ev2/
+
+# Editor and IDE state
+.vscode/
+.idea/
+*.swp
