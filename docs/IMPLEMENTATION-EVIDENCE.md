@@ -4,7 +4,7 @@ These measurements describe this repository's current, conservative implementati
 
 ## What ran
 
-- `npm test`: egress single-door check and **240 passing unit tests** across all workspaces.
+- `npm test`: egress single-door check and **258 passing unit tests** across all workspaces.
 - `npm run typecheck`: all five workspaces pass. `npm run build` builds Chrome MV3 and Firefox MV2 extensions.
 - `npm run test:browser`: isolated Chromium runs of the **built** panel and content scripts against Google- and Microsoft-style form fixtures. A local preflight lists detected questions without displaying values; cancelling it sends no form packet. After approval, each fixture went through eight planner/gate requests, completed fields below the viewport, rejected a bad date before advancing, corrected it with displayed advice, selected choices, required consent for submission, and kept supplied values out of outbound packets. The panel identifies local processing separately from the configured remote planner. This runner bridges Chrome messaging; it is not an installed-extension browser matrix.
 - Read-only inspection of the supplied real `forms.cloud.microsoft` page identified the seven visible controls (Date, Name, Aadhaar, Phone, PAN, Specifications, Address) with stable roles, labels and required states. **No real form was submitted or filled in that inspection.**
