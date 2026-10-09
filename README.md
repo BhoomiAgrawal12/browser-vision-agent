@@ -17,6 +17,35 @@ coordinates. One function in the whole codebase is allowed to touch the network.
 
 Implementation and measured limits: [docs/IMPLEMENTATION-EVIDENCE.md](docs/IMPLEMENTATION-EVIDENCE.md).
 
+![Dravika data flow](docs/diagrams/dravika-flow-corrected.png)
+
+## Results at a glance
+
+All numbers can be reproduced with the commands below. The full tables and
+known limits are in [bench/RESULTS.md](bench/RESULTS.md) and
+[docs/IMPLEMENTATION-EVIDENCE.md](docs/IMPLEMENTATION-EVIDENCE.md).
+
+| What | Result | Reproduce |
+|---|---|---|
+| PII redaction, Shield mode (18 synthetic captures, 55 items) | **100% precision, 89.1% recall**, 0 invariant-class leaks | `npm run bench` |
+| PII redaction, Fortress mode | **98.1% precision, 94.5% recall**, 0 invariant-class leaks | `npm run bench` |
+| Local perception latency (Intel i3-6100U, single-thread WASM) | **71.2 ms p50** end to end, 54.4 ms of it face inference | `npm run bench:latency` |
+| Unit tests | **258 passing** across five workspaces | `npm test` |
+| Network egress | Build fails if any network API is used outside the two allowlisted transport modules | `npm run check:egress` |
+| End-to-end browser runs | Google- and Microsoft-style forms, image/PDF upload approval, QR masking | `npm run test:browser` |
+| On-device model footprint | ~1.27 MB UltraFace ONNX, ~2.95 MB OCR language data, ~2.86 MB OCR WASM | n/a |
+
+**Guarantees enforced in code, not policy:**
+
+- Raw values never leave the device. The server only ever sees typed
+  placeholders such as `PII:AADHAAR#1`.
+- If something can't be explained, it gets masked. Unrecognised media and
+  identity documents are fully masked.
+- The planner names element IDs only and never coordinates. It cannot override
+  local validation, confirmation or execution.
+- Every request produces a receipt, and every upload needs explicit human
+  approval of the sanitized preview.
+
 ## Layout
 
 ```
@@ -29,6 +58,11 @@ bench/               RedactBench-Web corpus, red team suite, task runner
 docs/                the full report, threat model, data policy
 tools/               build utilities
 ```
+
+Package docs: [core](packages/core/README.md) ·
+[perception](packages/perception/README.md) ·
+[extension](apps/extension/README.md) · [server](apps/server/README.md) ·
+[bench](bench/README.md) · [tools](tools/README.md)
 
 ## Running the Tier 0 demo
 
