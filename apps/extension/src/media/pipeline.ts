@@ -232,6 +232,18 @@ export async function inspectLocalMedia(file: File, pageNumber = 1, options: { i
         evidence: [options.identityDocumentHint ? "structural:identity-document-upload" : "visual:id-document-ocr"], explained: true, visualClass: "ID_DOCUMENT",
       });
     }
+    // On an identity document every OCR line is personal (name, DOB, address,
+    // VID), and a single misread digit defeats the Aadhaar checksum, so mask
+    // every text line rather than only checksum-validated values.
+    if (identityDocumentDetected) {
+      const covered = new Set(detectedRedactions.map((redaction) => redaction.box));
+      for (const region of regions) {
+        if (region.role === "text" && !covered.has(region.box)) detectedRedactions.push({ box: region.box, label: "PII:ID_DOCUMENT" });
+      }
+    }
+    // If OCR never saw a number-like line, the ID number was not located at all.
+    const unlocatedIdNumber = identityDocumentDetected &&
+      !regions.some((region) => region.role === "text" && (region.rawText ?? "").replace(/\D/g, "").length >= 8);
     const ctx = canvas!.getContext("2d", { willReadFrequently: true })!;
     const image = ctx.getImageData(0, 0, canvas!.width, canvas!.height);
     let faceBackend: "webgpu" | "wasm" | "none" = "none";
@@ -280,7 +292,7 @@ export async function inspectLocalMedia(file: File, pageNumber = 1, options: { i
     }
     const hasRecognizedContent = regions.some((region) => region.role === "text") || faceRegions > 0 || barcodes > 0;
     const unresolvedIdentityQr = options.identityDocumentHint === true && barcodes === 0;
-    const forceFullMask = isPdf || signatureCue || unresolvedIdentityQr || (identityDocumentDetected && detectedRedactions.length === 0) || !hasRecognizedContent;
+    const forceFullMask = isPdf || signatureCue || unresolvedIdentityQr || unlocatedIdNumber || (identityDocumentDetected && detectedRedactions.length === 0) || !hasRecognizedContent;
     const fullPageMask: RedactionRect = {
       box: [0, 0, image.width, image.height],
       label: isPdf ? "PDF_PAGE" : identityDocumentDetected ? "PII:ID_DOCUMENT" : signatureCue ? "PII:SIGNATURE" : "UNEXPLAINED",
@@ -352,10 +364,12 @@ export async function inspectLocalMedia(file: File, pageNumber = 1, options: { i
         treatment: isPdf
           ? "PDF page fully masked after local OCR; original PDF objects, hidden text and metadata were discarded."
           : unresolvedIdentityQr ? "Full identity-upload image masked because its QR/code region could not be located safely."
+          : unlocatedIdNumber ? "Full identity-document image masked because its ID number could not be located."
           : forceFullMask
             ? identityDocumentDetected || signatureCue
               ? "Full image masked because an identity-document or signature cue could not be localized safely."
               : "Full image masked because local detectors could not safely identify sensitive regions."
+            : identityDocumentDetected ? "Identity document: every text line, face and barcode flat-filled; card layout is preserved for review."
             : "Selective flat-fill of locally detected PII, faces and barcodes; other pixels are preserved for review. OCR and visual detection can miss content.",
         elapsed_ms: Math.round(performance.now() - started),
       } };

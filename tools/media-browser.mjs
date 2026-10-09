@@ -201,11 +201,11 @@ try {
   assert.ok(jpegResult.safePixel.slice(0, 3).every((channel, index) => Math.abs(channel - [220, 239, 224][index]) <= 5) && jpegResult.safePixel[3] === 255, "safe JPEG content must survive redaction");
   assertFlatFill(jpegResult.aadhaarPixel, "JPEG Aadhaar");
   assertFlatFill(jpegResult.phonePixel, "JPEG phone");
-  assert.ok(jpegResult.namePixelMatch > 0.98, "name pixels should remain visible in Shield mode");
+  assert.ok(jpegResult.namePixelMatch < 0.9, "on an identity document every text line, including the name, must be masked");
   assert.ok(!JSON.stringify(jpegResult.packet).includes("Demo Person"));
   assert.ok(jpegResult.packet.visual.data_b64.length <= 1_500_000);
   await sendVerified(jpegResult.packet, ["Demo Person", "9999 4105 7058", "9876543210", "private-photo.jpg"]);
-   console.log(`PASS browser JPEG: name retained, Aadhaar/phone masked, safe pixels preserved (${jpegResult.report.elapsed_ms}ms)`);
+   console.log(`PASS browser JPEG identity document: name, Aadhaar and phone masked, safe pixels preserved (${jpegResult.report.elapsed_ms}ms)`);
    const identityFallback = await page.evaluate(async (base64) => {
      const { inspectLocalMedia } = await import("/media-pipeline.js");
      const result = await inspectLocalMedia(new File([Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))], "identity-upload.jpg", { type: "image/jpeg" }), 1, { identityDocumentHint: true });
