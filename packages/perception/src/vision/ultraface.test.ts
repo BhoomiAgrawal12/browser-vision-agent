@@ -119,7 +119,7 @@ describe("the vendored model", () => {
   it("runs real inference and reports no faces on a blank frame", async () => {
     const ort = await import("onnxruntime-web");
     ort.env.wasm.numThreads = 1;
-    const session = await ort.InferenceSession.create(modelPath);
+    const session = await ort.InferenceSession.create(modelPath, { logSeverityLevel: 3 });
     const model: FaceModel = {
       async run(input) {
         const out = await session.run({
